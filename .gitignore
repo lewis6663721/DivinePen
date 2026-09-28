@@ -1,0 +1,36 @@
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# ── 工具缓存 ────────────────────────────────────────────
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── 本地配置与机密（绝不入库）──────────────────────────
+.env
+.env.*
+!.env.example
+config.local.yaml
+secrets/
+
+# ── 运行时产物 ──────────────────────────────────────────
+media/
+output/
+uploads/
+logs/
+*.log
+*.sqlite3
+
+# ── 编辑器 / 系统 ───────────────────────────────────────
+.idea/
+.vscode/
+.DS_Store

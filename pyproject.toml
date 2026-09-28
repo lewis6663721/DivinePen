@@ -1,0 +1,88 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "divinepen"
+version = "0.1.0.dev0"
+description = "视频创作底座：原子能力 + 模型注册表 + 任务运行时"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "liuyaohua" }]
+keywords = ["video", "ai", "capability", "ffmpeg", "agentscope"]
+classifiers = [
+  "Private :: Do Not Upload",
+  "Programming Language :: Python :: 3.12",
+]
+
+# 底座主包：零 Web / 零 ORM / 零 Redis 依赖。
+# 任何项目 `pip install divinepen` 即可获得全部原子能力。
+dependencies = [
+  "pydantic>=2.7",
+  "httpx>=0.27",
+  "anyio>=4.4",
+]
+
+[project.optional-dependencies]
+# 供应商 SDK（可选；不装也能用 HTTP 直连）
+dashscope = ["dashscope>=1.20"]
+# 智能体框架（只有插件需要）
+agents = ["agentscope>=0.1"]
+# 开发工具链
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.24",
+  "pytest-cov>=5.0",
+  "ruff>=0.6",
+  "mypy>=1.11",
+]
+
+# ── 原子能力的自动发现入口 ─────────────────────────────────────────
+# 第三方包只要在自己 pyproject 里声明同名 group，装上即注册。
+[project.entry-points."divinepen.capabilities"]
+# 内置能力用代码内注册（见 src/divinepen/capabilities/__init__.py），
+# 这里留给外部扩展包，示例：
+# image-upscale = "divinepen_upscale:register"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/divinepen"]
+
+[tool.uv.workspace]
+members = ["apps/*", "agents/*"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers"
+markers = [
+  "billed: 用例会发起真实计费请求（默认必须跳过，仅手动跑）",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF", "ASYNC"]
+ignore = [
+  "E501",     # 行长交给 formatter；中文注释按视觉宽度断行不现实
+  "RUF001",   # 全角标点：本项目注释/文档是中文，这三个规则是纯假阳性
+  "RUF002",
+  "RUF003",
+  "N818",     # 异常命名：本项目用"条件名"而非"XxxError"（CapabilityNotFound 比
+              # CapabilityNotFoundError 更短更清楚）；基类仍统一以 Error 结尾
+  "ASYNC109", # 对外 API 需要显式 timeout 参数，不是内部实现细节
+  "ASYNC240", # 命令行工具的路径探测（shutil.which / Path.is_file）开销可忽略
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["divinepen", "divinepen_server"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["divinepen"]
+mypy_path = "src"

@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DivinePen 视觉方向样张 · 石墨调色台</title>
+<style>
+/* ══════════════════════════════════════════════════════════════════
+   DivinePen 设计令牌 · 方向：「石墨调色台」
+   与「分镜系统」的浅底蓝强调刻意区隔：那是办公后台，这是渲染机房。
+   ══════════════════════════════════════════════════════════════════ */
+:root{
+  color-scheme: dark;
+
+  /* 石墨阶：全程只动亮度，不动色相。相邻两级肉眼几乎看不出，
+     叠起来层次自然浮出——这是"贵"的来源，不是靠阴影。 */
+  --canvas:        #0d1014;
+  --surface:       #151a20;
+  --surface-2:     #1c2229;
+  --surface-3:     #232a32;
+  --inset:         #0f1318;   /* 输入框比周围更暗：它是"凹"进去接收内容的 */
+  --hover:         #1f262e;
+
+  /* 分隔：低透明度 rgba，融进背景，需要时才被找到 */
+  --line-soft:     rgba(255,255,255,.045);
+  --line:          rgba(255,255,255,.075);
+  --line-strong:   rgba(255,255,255,.14);
+
+  /* 四级文字。层级靠 字重 × 明度 做，不靠字号堆 */
+  --ink:           #e9eef4;   /* 一级 · 值 */
+  --ink-2:         #a7b2bf;   /* 二级 · 标签 */
+  --ink-3:         #6d7885;   /* 三级 · 元信息 */
+  --ink-4:         #4a5461;   /* 四级 · 静音 / 禁用 */
+
+  /* 强调色只有一个：信号青。它表达"活着 / 就绪 / 可执行"。
+     因为它还想留在暗底上发亮，所以带一点冷绿偏青。 */
+  --signal:        #2fcfb2;
+  --signal-strong: #22b89d;
+  --signal-dim:    rgba(47,207,178,.13);
+  --signal-glow:   rgba(47,207,178,.22);
+
+  /* 琥珀只给"钱"。计费与警告共用它——语义统一为
+     「需要你付出代价的事物」。钱有专属视觉语言。 */
+  --billing:       #e8a33d;
+  --billing-dim:   rgba(232,163,61,.13);
+  --warn:          #e8a33d;
+
+  --ok:            #3fbf7f;
+  --ok-dim:        rgba(63,191,127,.13);
+  --danger:        #e5484d;
+  --danger-dim:    rgba(229,72,77,.13);
+
+  /* 圆角三档：小给控件，中给卡片，大给浮层。不混用 */
+  --r-xs: 4px;  --r-sm: 6px;  --r-md: 10px;  --r-lg: 14px;
+
+  /* 间距基数 4px。密度是决策不是默认：控制台取紧凑档 */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s8:32px; --s10:40px;
+
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+*{box-sizing:border-box}
+html{background:var(--canvas); -webkit-font-smoothing:antialiased}
+body{
+  margin:0; padding:var(--s8) var(--s6) 96px;
+  font:400 14px/1.55 var(--sans); color:var(--ink);
+  background:
+    radial-gradient(900px 480px at 12% -8%, rgba(47,207,178,.055), transparent 70%),
+    var(--canvas);
+}
+.wrap{max-width:1180px;margin:0 auto}
+
+/* ── 文档骨架：样张自己也要有层级 ─────────────────────────────── */
+.doc-head{border-bottom:1px solid var(--line);padding-bottom:var(--s6);margin-bottom:var(--s10)}
+.doc-head .kicker{font:500 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--signal)}
+.doc-head h1{font:600 33px/1.2 var(--sans);letter-spacing:-.022em;margin:var(--s3) 0 var(--s2)}
+.doc-head p{margin:0;max-width:64ch;color:var(--ink-2)}
+section{margin-bottom:var(--s10)}
+.sec-label{
+  display:flex;align-items:baseline;gap:var(--s3);
+  font:500 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);
+  padding-bottom:var(--s3);margin-bottom:var(--s5);border-bottom:1px solid var(--line-soft);
+}
+.sec-label b{color:var(--ink);font-weight:600;letter-spacing:0}
+.why{color:var(--ink-3);font-size:12px;margin:calc(-1 * var(--s2)) 0 var(--s5);max-width:80ch}
+
+/* ── 色板 ─────────────────────────────────────────────────────── */
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:var(--s2)}
+.sw{border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;background:var(--surface)}
+.sw .chip{height:52px;display:block}
+.sw .meta{padding:var(--s2) var(--s3) var(--s3)}
+.sw code{display:block;font:500 11px/1.5 var(--mono);color:var(--ink)}
+.sw span{display:block;font-size:11px;color:var(--ink-3);line-height:1.5}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:var(--s8)}
+@media (max-width:820px){.grid2{grid-template-columns:1fr}}
+
+/* ── 表面台阶：证明"几乎看不见的一跳" ─────────────────────────── */
+.stack{display:grid;gap:0}
+.stack .lvl{
+  padding:var(--s4) var(--s5);border:1px solid var(--line-soft);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.stack .lvl:first-child{border-radius:var(--r-md) var(--r-md) 0 0}
+.stack .lvl:last-child{border-radius:0 0 var(--r-md) var(--r-md)}
+.stack .lvl code{font:500 11px/1 var(--mono);color:var(--ink-3)}
+
+/* ── 字阶 ─────────────────────────────────────────────────────── */
+.type-row{display:grid;grid-template-columns:112px 1fr;gap:var(--s5);align-items:baseline;
+  padding:var(--s3) 0;border-bottom:1px solid var(--line-soft)}
+.type-row:last-child{border-bottom:0}
+.type-row .tag{font:500 10px/1.6 var(--mono);letter-spacing:.08em;color:var(--ink-4);text-transform:uppercase}
+.t-display{font-size:33px;font-weight:600;letter-spacing:-.022em;line-height:1.15}
+.t-h2{font-size:21px;font-weight:600;letter-spacing:-.014em;line-height:1.25}
+.t-h4{font-size:17px;font-weight:600;letter-spacing:-.008em}
+.t-body{font-size:14px;font-weight:400;color:var(--ink-2)}
+.t-label{font-size:13px;font-weight:500;color:var(--ink-2)}
+.t-meta{font-size:12px;font-weight:400;color:var(--ink-3)}
+.t-micro{font-size:11px;font-weight:500;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.t-data{font:500 14px/1.4 var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+
+/* ── 签名 1：能力节点 ─────────────────────────────────────────── */
+.caps{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:var(--s3)}
+.cap{
+  position:relative;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-md);padding:var(--s4);transition:border-color .16s,background .16s,transform .1s;
+}
+.cap::before{ /* 左侧状态轨：颜色只表达一件事——现在能不能用 */
+  content:"";position:absolute;left:0;top:12px;bottom:12px;width:2px;border-radius:2px;
+  background:var(--rail,var(--line-strong));
+}
+.cap[data-state="ready"]{--rail:var(--signal)}
+.cap[data-state="need-key"]{--rail:var(--billing)}
+.cap[data-state="off"]{--rail:var(--ink-4)}
+.cap:hover{background:var(--surface-2);border-color:var(--line-strong)}
+.cap:active{transform:scale(.995)}
+.cap .top{display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s3)}
+.cap .id{font:500 13px/1 var(--mono);color:var(--ink);letter-spacing:-.01em}
+.cap .ver{font:500 10px/1 var(--mono);color:var(--ink-4);margin-left:auto}
+.cap h3{margin:0 0 var(--s1);font-size:15px;font-weight:600;letter-spacing:-.006em}
+.cap p{margin:0;font-size:12.5px;color:var(--ink-3);line-height:1.6}
+.cap .foot{display:flex;flex-wrap:wrap;gap:6px;margin-top:var(--s4)}
+.chip{
+  font:500 10.5px/1 var(--mono);padding:4px 7px;border-radius:var(--r-xs);
+  background:var(--surface-3);color:var(--ink-2);border:1px solid var(--line-soft);
+}
+.chip.sig{background:var(--signal-dim);color:var(--signal);border-color:rgba(47,207,178,.22)}
+.chip.bill{background:var(--billing-dim);color:var(--billing);border-color:rgba(232,163,61,.24)}
+.chip.ok{background:var(--ok-dim);color:var(--ok);border-color:rgba(63,191,127,.22)}
+
+/* ── 签名 2：计费参数仪表 ─────────────────────────────────────── */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.panel-head{padding:var(--s4) var(--s5);border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:var(--s3)}
+.panel-head h3{margin:0;font-size:15px;font-weight:600}
+.panel-head .sub{font:400 12px/1 var(--sans);color:var(--ink-3)}
+.panel-body{padding:var(--s5)}
+.field{display:grid;gap:6px;margin-bottom:var(--s5)}
+.field:last-child{margin-bottom:0}
+.field .lbl{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--ink-2)}
+.field .dot-bill{width:5px;height:5px;border-radius:50%;background:var(--billing);box-shadow:0 0 0 3px var(--billing-dim)}
+.field .req{color:var(--danger);font-size:12px}
+.field .hint{font-size:11.5px;color:var(--ink-4);line-height:1.6}
+input[type=text],input[type=number],select,textarea{
+  width:100%;background:var(--inset);color:var(--ink);
+  border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:9px 11px;font:400 13.5px/1.5 var(--sans);outline:none;
+  transition:border-color .16s,box-shadow .16s,background .16s;
+}
+input:hover,select:hover,textarea:hover{border-color:var(--line-strong)}
+input:focus,select:focus,textarea:focus{border-color:var(--signal);box-shadow:0 0 0 3px var(--signal-dim)}
+input:disabled{color:var(--ink-4);cursor:not-allowed}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:var(--s4)}
+.seg{display:flex;gap:4px;background:var(--inset);border:1px solid var(--line);border-radius:var(--r-sm);padding:3px}
+.seg button{
+  flex:1;appearance:none;border:0;background:transparent;color:var(--ink-3);
+  padding:7px 4px;border-radius:var(--r-xs);cursor:pointer;
+  font:500 12.5px/1 var(--mono);font-variant-numeric:tabular-nums;
+  transition:background .16s,color .16s;
+}
+.seg button[aria-pressed="true"]{background:var(--surface-3);color:var(--ink);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.seg button:hover:not([aria-pressed="true"]){color:var(--ink-2)}
+
+/* 计费条：钱的位置单独占一条，不和参数混在一起 */
+.billbar{
+  display:flex;align-items:center;gap:var(--s4);
+  border-top:1px solid var(--line);background:linear-gradient(180deg,var(--billing-dim),transparent);
+  padding:var(--s4) var(--s5);
+}
+.billbar .k{font:500 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--billing)}
+.billbar .v{font:600 22px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--billing);letter-spacing:-.02em}
+.billbar .calc{margin-left:auto;font:400 11.5px/1.6 var(--mono);color:var(--ink-3);text-align:right}
+.btn{
+  appearance:none;border:1px solid var(--line-strong);background:var(--surface-2);color:var(--ink);
+  padding:9px 14px;border-radius:var(--r-sm);cursor:pointer;font:500 13px/1 var(--sans);
+  transition:background .16s,border-color .16s,transform .1s;
+}
+.btn:hover{background:var(--surface-3)}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--signal);border-color:var(--signal);color:#06231f;font-weight:600;
+  box-shadow:0 0 0 0 var(--signal-glow)}
+.btn.primary:hover{background:var(--signal-strong)}
+.btn.ghost{background:transparent}
+
+/* ── 签名 3：任务胶片格 ───────────────────────────────────────── */
+.filmstrip{display:flex;gap:3px;padding:var(--s1) 0}
+.filmstrip i{
+  flex:1;height:26px;border-radius:2px;background:var(--surface-3);
+  border:1px solid var(--line-soft);
+}
+.filmstrip i.done{background:var(--signal-dim);border-color:rgba(47,207,178,.28)}
+.filmstrip i.now{background:var(--signal);border-color:var(--signal);animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+@media (prefers-reduced-motion:reduce){.filmstrip i.now{animation:none}}
+
+.task{display:grid;grid-template-columns:26px 1fr auto;gap:var(--s4);align-items:center;
+  padding:var(--s3) var(--s4);border-bottom:1px solid var(--line-soft)}
+.task:last-child{border-bottom:0}
+.task .idx{font:500 11px/1 var(--mono);color:var(--ink-4);font-variant-numeric:tabular-nums}
+.task .name{font-size:13px;margin-bottom:2px}
+.task .sub{font:400 11.5px/1.5 var(--mono);color:var(--ink-4)}
+
+/* ── 微型界面：比例说明一切 ──────────────────────────────────── */
+.mini{display:grid;grid-template-columns:212px 1fr;min-height:340px;border:1px solid var(--line);
+  border-radius:var(--r-md);overflow:hidden;background:var(--canvas)}
+.mini .side{background:var(--canvas);border-right:1px solid var(--line);padding:var(--s4) var(--s3)}
+.mini .brand{display:flex;align-items:center;gap:9px;padding:0 var(--s2) var(--s4)}
+.mini .mark{width:24px;height:24px;border-radius:var(--r-sm);background:var(--signal);
+  display:grid;place-items:center;color:#06231f;font:700 12px/1 var(--sans)}
+.mini .brand b{font-size:13.5px;font-weight:600;letter-spacing:-.01em}
+.mini nav{display:grid;gap:2px}
+.mini nav a{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:var(--r-sm);
+  font-size:13px;color:var(--ink-3);text-decoration:none}
+.mini nav a:hover{background:var(--hover);color:var(--ink-2)}
+.mini nav a[aria-current]{background:var(--surface-2);color:var(--ink);font-weight:500}
+.mini nav a i{width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.5}
+.mini nav a[aria-current] i{background:var(--signal);opacity:1}
+.mini .main{padding:var(--s5) var(--s6);display:grid;align-content:start;gap:var(--s5)}
+.mini .hdr{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--s4)}
+.mini .hdr h2{margin:0;font-size:21px;font-weight:600;letter-spacing:-.016em}
+.mini .hdr p{margin:4px 0 0;font-size:12.5px;color:var(--ink-3)}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s3)}
+.metric{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s4)}
+.metric .k{font:500 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-4)}
+.metric .v{font:600 26px/1 var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.028em;margin-top:9px}
+.metric .d{font:400 11.5px/1.5 var(--sans);color:var(--ink-3);margin-top:6px}
+.metric.hero{grid-column:span 1}
+.metric.hero .v{color:var(--billing)}
+
+/* ── 对比：被拒绝的默认路径 ───────────────────────────────────── */
+.reject{display:grid;gap:var(--s2)}
+.reject div{display:grid;grid-template-columns:auto 1fr;gap:var(--s3);align-items:baseline;
+  font-size:12.5px;color:var(--ink-3)}
+.reject b{font:500 11px/1.6 var(--mono);color:var(--danger);text-transform:uppercase;letter-spacing:.08em}
+.reject span{color:var(--ink-2)}
+hr{border:0;border-top:1px solid var(--line-soft);margin:var(--s6) 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="doc-head">
+    <div class="kicker">Design Direction · v1 · 2026-09-28</div>
+    <h1>石墨调色台</h1>
+    <p>DivinePen 是渲染机房里的控制台，不是办公桌上的表单系统。深色石墨底、单一信号色、
+       等宽字体承担全部数据角色。和「分镜系统」那套浅底蓝强调刻意区隔——两者是不同世界的工具，
+       长得像才奇怪。</p>
+  </header>
+
+  <!-- ═══ 领域探索 ═══ -->
+  <section>
+    <div class="sec-label"><b>领域探索</b><span>动手之前先走进这个产品的世界</span></div>
+    <div class="reject">
+      <div><b>Domain</b><span>调色间 · 时间轴 · 齿孔胶片 · 波形示波器 · 安全框 · 渲染农场排队 · 色温滑块 · 密钥柜 · 计费表</span></div>
+      <div><b>Color world</b><span>监视器暗场 #0d1014 · 石墨机箱 · 示波器荧光青 · REC 红灯 · 胶片暖棕 · 中性灰卡</span></div>
+      <div><b>Signature</b><span>① 能力节点（左侧状态轨）② 计费仪表（改动即重算，钱单独占一条）③ 任务胶片格（轮询进度可视化）</span></div>
+      <div><b>Rejecting</b><span>浅底 + #2563eb 蓝（通用 SaaS 默认脸）→ 石墨 + 信号青；卡片三件套阴影 → 只留边框与亮度跳档；彩色分类图标 → 颜色只回答"能不能用"</span></div>
+      <div><b>Feel</b><span>像机房里的一台仪器：安静、精确、耐看；数字有分量，钱有颜色，就绪状态会发光。</span></div>
+    </div>
+  </section>
+
+  <!-- ═══ 令牌 ═══ -->
+  <section>
+    <div class="sec-label"><b>令牌</b><span>把这份色板念出来，应该能听出是哪个产品</span></div>
+    <p class="why">相邻表面只差几个百分点的亮度，单独看几乎分辨不出——叠起来层次自然浮现。深色下不用阴影（读不出来），只用边框与亮度。</p>
+    <div class="grid2">
+      <div>
+        <div class="swatches">
+          <div class="sw"><i class="chip" style="background:var(--canvas)"></i><div class="meta"><code>--canvas</code><span>页面底</span></div></div>
+          <div class="sw"><i class="chip" style="background:var(--surface)"></i><div class="meta"><code>--surface</code><span>卡片</span></div></div>
+          <div class="sw"><i class="chip" style="background:var(--surface-2)"></i><div class="meta"><code>--surface-2</code><span>浮起 / 悬停</span></div></div>
+          <div class="sw"><i class="chip" style="background:var(--surface-3)"></i><div class="meta"><code>--surface-3</code><span>标签胶囊</span></div></div>
+          <div class="sw"><i class="chip" style="background:var(--inset)"></i><div class="meta"><code>--inset</code><span>输入框（凹）</span></div></div>
+          <div class="sw"><i class="chip" style="background:var(--line-strong)"></i><div class="meta"><code>--line-strong</code><span>强调分隔</span></div></div>
+        </div>
+        <hr>
+        <div class="swatches">
+          <div class="sw"><i class="chip" style="background:var(--ink)"></i><div class="meta"><code>--ink</code><span>一级 · 值</span></div></div>
+          <div class="sw"><i class="chip" style="background:var(--ink-2)"></i><div class="meta"><code>--ink-2</code><span>二级 · 标签</span></div></div>
+          <div class="sw"><i class="chip" style="background:var(--ink-3)"></i><div class="meta"><code>--ink-3</code><span>三级 · 元信息</span></div></div>
+          <div class="sw"><i class="chip" style="background:var(--ink-4)"></i><div class="meta"><code>--ink-4</code><span>四级 · 禁用</span></div></div>
+        </div>
+      </div>
+      <div>
+        <div class="swatches" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
+          <div class="sw"><i class="chip" style="background:var(--signal)"></i><div class="meta"><code>--signal</code><span>就绪 / 可执行 · 唯一强调色</span></div></div>
+          <div class="sw"><i class="chip" style="background:var(--billing)"></i><div class="meta"><code>--billing</code><span>钱与警告 · 专属语义</span></div></div>
+          <div class="sw"><i class="chip" style="background:var(--ok)"></i><div class="meta"><code>--ok</code><span>成功</span></div></div>
+          <div class="sw"><i class="chip" style="background:var(--danger)"></i><div class="meta"><code>--danger</code><span>失败 / 破坏性</span></div></div>
+        </div>
+        <hr>
+        <div class="sec-label" style="margin-bottom:var(--s3)"><b>表面台阶</b></div>
+        <div class="stack">
+          <div class="lvl" style="background:var(--canvas)"><span>页面底</span><code>--canvas</code></div>
+          <div class="lvl" style="background:var(--surface)"><span>卡片 / 面板</span><code>--surface</code></div>
+          <div class="lvl" style="background:var(--surface-2)"><span>浮层 / 悬停</span><code>--surface-2</code></div>
+          <div class="lvl" style="background:var(--surface-3)"><span>胶囊 / 选中态</span><code>--surface-3</code></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 字阶 ═══ -->
+  <section>
+    <div class="sec-label"><b>字阶</b><span>比例 1.25，但层级主要靠字重 × 明度</span></div>
+    <p class="why">中文没有斜体可用，只能靠字号、字重、明度三根杠杆一起使劲。凡标识符与数字一律走等宽 + <code>tabular-nums</code>——
+       模型名、<code>task_id</code>、金额、时长对不齐会显得很脏。</p>
+    <div class="type-row"><div class="tag">display 33</div><div class="t-display">任务中心</div></div>
+    <div class="type-row"><div class="tag">h2 21</div><div class="t-h2">模型管理 · 阿里云百炼</div></div>
+    <div class="type-row"><div class="tag">h4 17</div><div class="t-h4">参数设置</div></div>
+    <div class="type-row"><div class="tag">body 14</div><div class="t-body">参考图必须是供应商可拉取的地址：公网 URL、OSS 临时链接，或 base64 内联。</div></div>
+    <div class="type-row"><div class="tag">label 13</div><div class="t-label">分辨率</div></div>
+    <div class="type-row"><div class="tag">meta 12</div><div class="t-meta">最后同步 3 分钟前</div></div>
+    <div class="type-row"><div class="tag">micro 11</div><div class="t-micro">本轮预估</div></div>
+    <div class="type-row"><div class="tag">data mono</div><div class="t-data">wan2.7-t2v-2026-06-12 · 1280×720 · 5s · ¥0.70</div></div>
+  </section>
+
+  <!-- ═══ 签名 1 ═══ -->
+  <section>
+    <div class="sec-label"><b>签名 ① 能力节点</b><span>颜色只回答一个问题：现在能不能用</span></div>
+    <p class="why">通用做法给每个分类配一个颜色（图像紫、视频蓝、音频橙……），结果是一片彩虹、焦点涣散。
+       这里分类用等宽文字表达，颜色只留给状态：青=就绪、琥珀=缺 Key、灰=未启用。左侧那道 2px 状态轨，
+       扫一眼就能从几十个能力里挑出"现在能跑的"。</p>
+    <div class="caps">
+      <article class="cap" data-state="ready">
+        <div class="top"><code class="id">video.t2v</code><span class="ver">v0.1.0</span></div>
+        <h3>文生视频</h3>
+        <p>文本提示词 → 短视频。异步任务，提交后轮询取结果。</p>
+        <div class="foot"><span class="chip sig">就绪</span><span class="chip">async</span><span class="chip bill">按秒计费</span></div>
+      </article>
+      <article class="cap" data-state="ready">
+        <div class="top"><code class="id">media.burn_subtitles</code><span class="ver">v0.1.0</span></div>
+        <h3>字幕烧录</h3>
+        <p>把 SRT/ASS 硬字幕压进画面。本地 ffmpeg，同步返回。</p>
+        <div class="foot"><span class="chip sig">就绪</span><span class="chip ok">免费</span><span class="chip">ffmpeg</span></div>
+      </article>
+      <article class="cap" data-state="need-key">
+        <div class="top"><code class="id">image.t2i</code><span class="ver">v0.2.0</span></div>
+        <h3>文生图</h3>
+        <p>提示词 → 单张或多张图像。支持负向提示词与水印控制。</p>
+        <div class="foot"><span class="chip bill">缺 API Key</span><span class="chip">按张计费</span></div>
+      </article>
+      <article class="cap" data-state="off">
+        <div class="top"><code class="id">audio.tts.clone</code><span class="ver">v0.1.0</span></div>
+        <h3>声音复刻</h3>
+        <p>上传样本音频克隆音色。接口文档待补，暂未启用。</p>
+        <div class="foot"><span class="chip">未启用</span><span class="chip">待补文档</span></div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ═══ 签名 2 ═══ -->
+  <section>
+    <div class="sec-label"><b>签名 ② 参数表单与计费仪表</b><span>把"点下去会花多少"摆在按钮旁边</span></div>
+    <p class="why">这是整个设计里最该存在的东西：一个视频任务可能几毛，也可能几十块，用户不该靠猜。
+       凡是影响计费的参数（时长、分辨率、张数）都带琥珀点标记；底部单独一条计费栏，改参数即刻重算。
+       按钮文案直说价格，不说"提交"。</p>
+    <div class="grid2" style="grid-template-columns:1.15fr .85fr">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>文生视频</h3><span class="sub">video.t2v · wan2.7-t2v</span>
+          <span class="chip sig" style="margin-left:auto">阿里云百炼</span>
+        </div>
+        <div class="panel-body">
+          <div class="field">
+            <label class="lbl" for="p1">提示词 <span class="req">*</span></label>
+            <textarea id="p1" rows="3">雨夜霓虹街道，镜头缓慢横移，浅景深，胶片颗粒</textarea>
+            <div class="hint">必填。建议 30–200 字，写清主体、动作、镜头与光线。</div>
+          </div>
+          <div class="field">
+            <label class="lbl">分辨率</label>
+            <div class="seg" id="res">
+              <button aria-pressed="false" data-w="1280" data-h="720" data-mult="1">1280×720</button>
+              <button aria-pressed="true"  data-w="1920" data-h="1080" data-mult="2">1920×1080</button>
+              <button aria-pressed="false" data-w="2560" data-h="1440" data-mult="3.5">2560×1440</button>
+            </div>
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label class="lbl" for="p2"><i class="dot-bill"></i>时长</label>
+              <input id="p2" type="number" value="5" min="2" max="20" step="1">
+              <div class="hint">2–20 秒，秒数直接参与计费。</div>
+            </div>
+            <div class="field">
+              <label class="lbl" for="p3">随机种子</label>
+              <input id="p3" type="number" value="0" min="0">
+              <div class="hint">0 表示由服务端随机。</div>
+            </div>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label class="lbl" for="p4">参考图（可选）</label>
+            <input id="p4" type="text" placeholder="https://… 或 OSS 临时链接">
+            <div class="hint">必须是供应商能拉到的地址；本地相对路径会导致下载失败。</div>
+          </div>
+        </div>
+        <div class="billbar">
+          <div>
+            <div class="k">本轮预估</div>
+            <div class="v" id="price">¥1.40</div>
+          </div>
+          <div class="calc" id="calc">1080p × 5s<br>¥0.28 / 秒</div>
+          <button class="btn primary" id="go">花费 ¥1.40 生成</button>
+        </div>
+      </div>
+      <div>
+        <div class="panel">
+          <div class="panel-head"><h3>dry-run 预演</h3><span class="sub">零成本</span></div>
+          <div class="panel-body" style="padding:0">
+<pre style="margin:0;padding:var(--s5);font:400 11.5px/1.7 var(--mono);color:var(--ink-2);white-space:pre-wrap">POST https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis
+X-DashScope-Async: enable
+
+{
+  "model": "wan2.7-t2v-2026-06-12",
+  "input":  { "prompt": "雨夜霓虹街道…" },
+  "parameters": {
+    "resolution": "1920*1080",
+    "duration": 5,
+    "seed": 0
+  }
+}</pre>
+          </div>
+        </div>
+        <p class="why" style="margin-top:var(--s4)">点"预演"永远免费：底座在这里就把真实请求体拼好给你看。
+          用户确认后才带 <code>--billed-allowed</code> 重放同一个 plan。三道闸的第二、三道就长在这儿。</p>
+        <div style="display:flex;gap:var(--s2);margin-top:var(--s4)">
+          <button class="btn">预演（免费）</button>
+          <button class="btn ghost">保存为模板</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 签名 3 ═══ -->
+  <section>
+    <div class="sec-label"><b>签名 ③ 任务胶片格</b><span>把"轮询"变成看得见的进度</span></div>
+    <p class="why">通用做法是一根细进度条，但视频任务要跑几分钟、轮询有固定节拍。用一排格子标出每次轮询，
+       已完成变青、当前在跑的那格呼吸、失败的那格变红并原样停住——出问题时你能一眼看出卡在第几次轮询。</p>
+    <div class="panel">
+      <div class="task">
+        <div class="idx">01</div>
+        <div>
+          <div class="name">雨夜霓虹街道 · 1080p · 5s</div>
+          <div class="sub">video.t2v · tsk_9f3a…c21 · 已轮询 14 / 18 · 预计还需 40s</div>
+          <div class="filmstrip" style="margin-top:8px">
+            <i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i>
+            <i class="now"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+        <span class="chip sig">生成中</span>
+      </div>
+      <div class="task">
+        <div class="idx">02</div>
+        <div>
+          <div class="name">漫画短剧 第3集 分镜图 × 12</div>
+          <div class="sub">image.t2i · tsk_2c88…7ab · 12 张全部返回 · 耗时 46s</div>
+          <div class="filmstrip" style="margin-top:8px">
+            <i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i>
+            <i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+        <span class="chip ok">已完成</span>
+      </div>
+      <div class="task">
+        <div class="idx">03</div>
+        <div>
+          <div class="name">广告片配音 · 男声·沉稳</div>
+          <div class="sub">audio.tts · 第 3 次轮询失败：InvalidParameter.AudioFormat</div>
+          <div class="filmstrip" style="margin-top:8px">
+            <i class="done"></i><i class="done"></i>
+            <i style="background:var(--danger);border-color:var(--danger)"></i>
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+        <span class="chip" style="background:var(--danger-dim);color:var(--danger);border-color:rgba(229,72,77,.24)">失败</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 微型界面 ═══ -->
+  <section>
+    <div class="sec-label"><b>比例</b><span>宽度即态度：导航 212px 是说"我服务内容"</span></div>
+    <div class="mini">
+      <aside class="side">
+        <div class="brand"><div class="mark">笔</div><b>DivinePen</b></div>
+        <nav>
+          <a href="#" aria-current="true"><i></i>概览</a>
+          <a href="#"><i></i>能力目录</a>
+          <a href="#"><i></i>模型管理</a>
+          <a href="#"><i></i>任务中心</a>
+          <a href="#"><i></i>用量与费用</a>
+          <a href="#"><i></i>配置管理</a>
+          <a href="#"><i></i>插件</a>
+        </nav>
+      </aside>
+      <div class="main">
+        <div class="hdr">
+          <div><h2>概览</h2><p>底座今天替你干了什么，花了多少钱。</p></div>
+          <div style="display:flex;gap:var(--s2)"><button class="btn ghost">重新体检</button><button class="btn primary">新建任务</button></div>
+        </div>
+        <div class="metrics">
+          <div class="metric hero"><div class="k">今日花费</div><div class="v">¥38.42</div><div class="d">17 个任务 · 3 个失败未计费</div></div>
+          <div class="metric"><div class="k">在途任务</div><div class="v">4</div><div class="d">最近一次轮询 6 秒前</div></div>
+          <div class="metric"><div class="k">可用能力</div><div class="v">23/31</div><div class="d">8 个缺 Key 或未启用</div></div>
+        </div>
+        <div class="caps" style="grid-template-columns:1fr 1fr">
+          <article class="cap" data-state="ready">
+            <div class="top"><code class="id">video.i2v</code><span class="ver">v0.1.0</span></div>
+            <h3>图生视频</h3>
+            <p>首帧图 + 提示词 → 动态镜头。</p>
+            <div class="foot"><span class="chip sig">就绪</span><span class="chip bill">按秒计费</span></div>
+          </article>
+          <article class="cap" data-state="need-key">
+            <div class="top"><code class="id">llm.chat</code><span class="ver">v0.3.0</span></div>
+            <h3>文本对话</h3>
+            <p>用于提示词润色与结构化抽取。</p>
+            <div class="foot"><span class="chip bill">缺 API Key</span><span class="chip">按 Token</span></div>
+          </article>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr>
+  <p class="why" style="max-width:78ch">
+    自检：<b>替换测试</b>——把等宽数据、状态轨、琥珀计费栏全换成普通样式，这页立刻变成任何一家后台；
+    <b>眯眼测试</b>——只有"今日花费"和就绪轨道会浮出来，没有刺眼的分割线；
+    <b>令牌测试</b>——<code>--signal</code>、<code>--billing</code>、<code>--inset</code>、<code>--canvas</code> 这组名字只可能属于一个"渲染/计费"产品。
+  </p>
+</div>
+
+<script>
+// 计费仪表：改参数即刻重算。这是这个产品最该有的交互反馈。
+(function(){
+  var price = document.getElementById('price');
+  var calc  = document.getElementById('calc');
+  var go    = document.getElementById('go');
+  var dur   = document.getElementById('p2');
+  var seg   = document.getElementById('res');
+  var RATE  = 0.28;               // 元 / 秒（1080p 基准）
+  var state = { mult: 2, label: '1080p' };
+
+  function render(){
+    var secs = Math.max(2, Math.min(20, parseFloat(dur.value) || 5));
+    var total = (RATE * state.mult * secs).toFixed(2);
+    price.textContent = '¥' + total;
+    calc.innerHTML = state.label + ' × ' + secs + 's<br>¥' + (RATE * state.mult).toFixed(2) + ' / 秒';
+    go.textContent = '花费 ¥' + total + ' 生成';
+  }
+  seg.addEventListener('click', function(e){
+    var b = e.target.closest('button'); if(!b) return;
+    [].forEach.call(seg.querySelectorAll('button'), function(x){
+      x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+    });
+    state.mult = parseFloat(b.dataset.mult);
+    state.label = b.textContent.trim();
+    render();
+  });
+  dur.addEventListener('input', render);
+  render();
+})();
+</script>
+</body>
+</html>

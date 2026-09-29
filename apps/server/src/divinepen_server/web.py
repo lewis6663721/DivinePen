@@ -136,7 +136,7 @@ settings_ref: dict[str, Settings] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    instance = rt.App(settings_ref["settings"])
+    instance = await rt.App.create(settings_ref["settings"])
     state["app"] = instance
     state["seed"] = await seed(instance.repo)
     try:
@@ -256,7 +256,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {
                 "ok": True,
-                "db": str(instance.db_path if hasattr(instance, "db_path") else settings.db_path),
+                "db": instance.store.description,
                 "media_root": str(settings.media_root),
                 "capabilities": instance.registry.ids(),
                 "encryption": instance.box.backend,

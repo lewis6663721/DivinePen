@@ -138,40 +138,33 @@ class Repo:
 
     # 供应商 ------------------------------------------------------
     async def providers(self) -> list[dict[str, Any]]:
-        return await self.db.aquery("SELECT * FROM dp_provider ORDER BY sort, code")
+        return await self.db.query("SELECT * FROM dp_provider ORDER BY sort, code")
 
     async def provider(self, code: str) -> dict[str, Any] | None:
-        return await self.db.aquery_one("SELECT * FROM dp_provider WHERE code = ?", (code,))
+        return await self.db.query_one("SELECT * FROM dp_provider WHERE code = ?", (code,))
 
     async def upsert_provider(self, row: dict[str, Any], *, force: bool = False) -> bool:
         existing = await self.provider(row["code"])
         if existing and not force:
             return False
-        await self.db.aexecute(
-            """INSERT INTO dp_provider
-                 (code, name, base_url, region, auth_type, docs_url, notes, enabled, sort)
-               VALUES (:code, :name, :base_url, :region, :auth_type, :docs_url, :notes,
-                       :enabled, :sort)
-               ON CONFLICT(code) DO UPDATE SET
-                 name=excluded.name, base_url=excluded.base_url, region=excluded.region,
-                 auth_type=excluded.auth_type, docs_url=excluded.docs_url, notes=excluded.notes,
-                 enabled=excluded.enabled, sort=excluded.sort""",
-            (
-                row["code"],
-                row["name"],
-                row.get("base_url", ""),
-                row.get("region"),
-                row.get("auth_type", "bearer"),
-                row.get("docs_url", ""),
-                row.get("notes", ""),
-                int(row.get("enabled", 1)),
-                int(row.get("sort", 100)),
-            ),
+        await self.db.upsert(
+            "dp_provider",
+            keys={"code": row["code"]},
+            data={
+                "name": row["name"],
+                "base_url": row.get("base_url", ""),
+                "region": row.get("region"),
+                "auth_type": row.get("auth_type", "bearer"),
+                "docs_url": row.get("docs_url", ""),
+                "notes": row.get("notes", ""),
+                "enabled": int(row.get("enabled", 1)),
+                "sort": int(row.get("sort", 100)),
+            },
         )
         return True
 
     async def set_provider_enabled(self, code: str, enabled: bool) -> None:
-        await self.db.aexecute(
+        await self.db.execute(
             "UPDATE dp_provider SET enabled = ? WHERE code = ?", (int(enabled), code)
         )
 
@@ -205,7 +198,7 @@ class Repo:
         )
 
     MODEL_COLUMNS = (
-        "id, provider, key, capability, name, mode, transport, enabled, path, method, "
+        "id, provider, `key`, capability, name, mode, transport, enabled, path, method, "
         "headers, poll, params, defaults, pricing, notes, doc_url, source_doc, verified, "
         "priority, created_at, updated_at"
     )
@@ -217,7 +210,7 @@ class Repo:
         才按目录重写（用于文档更新后的重新导入）。
         """
         row = self._model_row(spec)
-        existing = await self.db.aquery_one("SELECT id FROM dp_model WHERE id = ?", (row[0],))
+        existing = await self.db.query_one("SELECT id FROM dp_model WHERE id = ?", (row[0],))
         placeholders = ", ".join(["?"] * len(row))
         if existing and not force:
             return "skipped"
@@ -225,9 +218,9 @@ class Repo:
             sets = ", ".join(
                 f"{col.strip()} = ?" for col in self.MODEL_COLUMNS.split(",") if col.strip() != "id"
             )
-            await self.db.aexecute(f"UPDATE dp_model SET {sets} WHERE id = ?", (*row[1:], row[0]))
+            await self.db.execute(f"UPDATE dp_model SET {sets} WHERE id = ?", (*row[1:], row[0]))
             return "updated"
-        await self.db.aexecute(
+        await self.db.execute(
             f"INSERT INTO dp_model ({self.MODEL_COLUMNS}) VALUES ({placeholders})", row
         )
         return "inserted"
@@ -249,11 +242,11 @@ class Repo:
             args.append(provider)
         if not include_disabled:
             sql += " AND enabled = 1"
-        sql += " ORDER BY capability, priority, key"
-        return await self.db.aquery(sql, args)
+        sql += " ORDER BY capability, priority, `key`"
+        return await self.db.query(sql, args)
 
     async def model(self, model_id: str) -> dict[str, Any] | None:
-        row = await self.db.aquery_one("SELECT * FROM dp_model WHERE id = ?", (model_id,))
+        row = await self.db.query_one("SELECT * FROM dp_model WHERE id = ?", (model_id,))
         return self.hydrate_model(row) if row else None
 
     @staticmethod
@@ -272,7 +265,7 @@ class Repo:
         return row
 
     async def set_model_enabled(self, model_id: str, enabled: bool) -> None:
-        await self.db.aexecute(
+        await self.db.execute(
             "UPDATE dp_model SET enabled = ?, updated_at = ? WHERE id = ?",
             (int(enabled), now_iso(), model_id),
         )
@@ -286,7 +279,7 @@ class Repo:
             for field in group.get("fields", []):
                 if field.get("key") == key:
                     field["default"] = value
-                    await self.db.aexecute(
+                    await self.db.execute(
                         "UPDATE dp_model SET params = ?, updated_at = ? WHERE id = ?",
                         (dumps(params), now_iso(), model_id),
                     )
@@ -295,14 +288,14 @@ class Repo:
 
     # 凭据 --------------------------------------------------------
     async def credentials(self) -> list[dict[str, Any]]:
-        rows = await self.db.aquery("SELECT * FROM dp_credential ORDER BY provider")
+        rows = await self.db.query("SELECT * FROM dp_credential ORDER BY provider")
         for row in rows:
             row["api_key_masked"] = mask_secret(row.get("api_key", ""))
             row["has_key"] = bool(row.get("api_key"))
         return rows
 
     async def credential(self, provider: str, workspace: str = "") -> dict[str, Any] | None:
-        return await self.db.aquery_one(
+        return await self.db.query_one(
             "SELECT * FROM dp_credential WHERE provider = ? AND workspace = ?",
             (provider, workspace),
         )
@@ -315,28 +308,23 @@ class Repo:
 
     async def save_credential(self, provider: str, api_key: str, *, workspace: str = "") -> None:
         sealed = self.box.seal(api_key.strip())
-        await self.db.aexecute(
-            """INSERT INTO dp_credential
-                 (id, provider, workspace, api_key, encrypted, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(provider, workspace) DO UPDATE SET
-                 api_key=excluded.api_key, encrypted=excluded.encrypted,
-                 updated_at=excluded.updated_at""",
-            (
-                f"{provider}:{workspace or '-'}",
-                provider,
-                workspace,
-                sealed,
-                int(self.box.encrypted),
-                now_iso(),
-                now_iso(),
-            ),
+        await self.db.upsert(
+            "dp_credential",
+            keys={"provider": provider, "workspace": workspace},
+            data={
+                "id": f"{provider}:{workspace or '-'}",
+                "api_key": sealed,
+                "encrypted": int(self.box.encrypted),
+                "created_at": now_iso(),
+                "updated_at": now_iso(),
+            },
+            update=["api_key", "encrypted", "updated_at"],
         )
 
     async def record_credential_test(
         self, provider: str, ok: bool, note: str, *, workspace=""
     ) -> None:
-        await self.db.aexecute(
+        await self.db.execute(
             "UPDATE dp_credential SET last_test_at = ?, last_test_ok = ?, last_test_note = ? "
             "WHERE provider = ? AND workspace = ?",
             (now_iso(), int(ok), note, provider, workspace),
@@ -344,13 +332,13 @@ class Repo:
 
     # 用户 --------------------------------------------------------
     async def users(self) -> list[dict[str, Any]]:
-        return await self.db.aquery("SELECT * FROM dp_user ORDER BY created_at")
+        return await self.db.query("SELECT * FROM dp_user ORDER BY created_at")
 
     async def user_by_name(self, username: str) -> dict[str, Any] | None:
-        return await self.db.aquery_one("SELECT * FROM dp_user WHERE username = ?", (username,))
+        return await self.db.query_one("SELECT * FROM dp_user WHERE username = ?", (username,))
 
     async def user(self, user_id: str) -> dict[str, Any] | None:
-        return await self.db.aquery_one("SELECT * FROM dp_user WHERE id = ?", (user_id,))
+        return await self.db.query_one("SELECT * FROM dp_user WHERE id = ?", (user_id,))
 
     async def create_user(
         self,
@@ -361,7 +349,7 @@ class Repo:
         role: str = "user",
     ) -> str:
         user_id = f"u_{secrets.token_hex(6)}"
-        await self.db.aexecute(
+        await self.db.execute(
             """INSERT INTO dp_user (id, username, display_name, role, password_hash, enabled, created_at)
                VALUES (?, ?, ?, ?, ?, 1, ?)""",
             (user_id, username, display_name or username, role, hash_password(password), now_iso()),
@@ -369,21 +357,21 @@ class Repo:
         return user_id
 
     async def set_user_enabled(self, user_id: str, enabled: bool) -> None:
-        await self.db.aexecute(
+        await self.db.execute(
             "UPDATE dp_user SET enabled = ? WHERE id = ?", (int(enabled), user_id)
         )
 
     async def set_user_role(self, user_id: str, role: str) -> None:
-        await self.db.aexecute("UPDATE dp_user SET role = ? WHERE id = ?", (role, user_id))
+        await self.db.execute("UPDATE dp_user SET role = ? WHERE id = ?", (role, user_id))
 
     async def set_user_password(self, user_id: str, password: str) -> None:
-        await self.db.aexecute(
+        await self.db.execute(
             "UPDATE dp_user SET password_hash = ? WHERE id = ?", (hash_password(password), user_id)
         )
 
     # 用量 --------------------------------------------------------
     async def record_usage(self, entry: dict[str, Any]) -> None:
-        await self.db.aexecute(
+        await self.db.execute(
             """INSERT INTO dp_usage
                  (capability_id, provider, model, unit, quantity, amount, currency,
                   user_id, task_id, request_id, at, raw)
@@ -405,13 +393,13 @@ class Repo:
         )
 
     async def usage(self, *, limit: int = 200) -> list[dict[str, Any]]:
-        return await self.db.aquery(
+        return await self.db.query(
             "SELECT * FROM dp_usage ORDER BY at DESC, id DESC LIMIT ?", (limit,)
         )
 
     async def usage_summary(self) -> dict[str, Any]:
         today = datetime.now().astimezone().date().isoformat()
-        totals = await self.db.aquery_one(
+        totals = await self.db.query_one(
             """SELECT COUNT(*) AS calls,
                       COALESCE(SUM(amount), 0) AS amount,
                       COALESCE(SUM(CASE WHEN at LIKE ? THEN amount ELSE 0 END), 0) AS today_amount,
@@ -419,14 +407,14 @@ class Repo:
                FROM dp_usage""",
             (f"{today}%", f"{today}%"),
         )
-        by_model = await self.db.aquery(
+        by_model = await self.db.query(
             """SELECT model, COUNT(*) AS calls, COALESCE(SUM(amount), 0) AS amount
                FROM dp_usage GROUP BY model ORDER BY amount DESC, calls DESC LIMIT 8"""
         )
         return {"totals": totals or {}, "by_model": by_model}
 
     async def pending_billed_count(self) -> int:
-        row = await self.db.aquery_one(
+        row = await self.db.query_one(
             "SELECT COUNT(*) AS n FROM dp_usage WHERE amount IS NULL AND unit != 'free'"
         )
         return int((row or {}).get("n", 0))
@@ -434,7 +422,7 @@ class Repo:
     # 任务 --------------------------------------------------------
     async def create_task(self, entry: dict[str, Any]) -> str:
         task_id = entry.get("id") or f"t_{secrets.token_hex(8)}"
-        await self.db.aexecute(
+        await self.db.execute(
             """INSERT INTO dp_task
                  (id, capability_id, provider, model, status, remote_task_id, progress, polls,
                   payload, result, error, user_id, created_at, updated_at, finished_at)
@@ -467,21 +455,21 @@ class Repo:
             args.append(status)
         sql += " ORDER BY created_at DESC LIMIT ?"
         args.append(limit)
-        rows = await self.db.aquery(sql, args)
+        rows = await self.db.query(sql, args)
         for row in rows:
             row["payload_obj"] = loads(row.get("payload"), {})
             row["result_obj"] = loads(row.get("result"), {})
         return rows
 
     async def task(self, task_id: str) -> dict[str, Any] | None:
-        row = await self.db.aquery_one("SELECT * FROM dp_task WHERE id = ?", (task_id,))
+        row = await self.db.query_one("SELECT * FROM dp_task WHERE id = ?", (task_id,))
         if row:
             row["payload_obj"] = loads(row.get("payload"), {})
             row["result_obj"] = loads(row.get("result"), {})
         return row
 
     async def task_counts(self) -> dict[str, int]:
-        rows = await self.db.aquery("SELECT status, COUNT(*) AS n FROM dp_task GROUP BY status")
+        rows = await self.db.query("SELECT status, COUNT(*) AS n FROM dp_task GROUP BY status")
         return {row["status"]: int(row["n"]) for row in rows}
 
     async def update_task(self, task_id: str, **fields: Any) -> None:
@@ -489,31 +477,27 @@ class Repo:
             return
         fields["updated_at"] = now_iso()
         sets = ", ".join(f"{key} = ?" for key in fields)
-        await self.db.aexecute(
+        await self.db.execute(
             f"UPDATE dp_task SET {sets} WHERE id = ?", (*fields.values(), task_id)
         )
 
     # 设置 --------------------------------------------------------
     async def settings(self) -> dict[str, str]:
-        rows = await self.db.aquery("SELECT k, v FROM dp_setting")
+        rows = await self.db.query("SELECT k, v FROM dp_setting")
         return {row["k"]: row["v"] for row in rows}
 
     async def set_setting(self, key: str, value: str) -> None:
-        await self.db.aexecute(
-            "INSERT INTO dp_setting (k, v) VALUES (?, ?) "
-            "ON CONFLICT(k) DO UPDATE SET v = excluded.v",
-            (key, value),
-        )
+        await self.db.upsert("dp_setting", keys={"k": key}, data={"v": value})
 
     # 概览 --------------------------------------------------------
     async def overview(self) -> dict[str, Any]:
-        models = await self.db.aquery_one(
+        models = await self.db.query_one(
             "SELECT COUNT(*) AS total, SUM(enabled) AS enabled, SUM(verified) AS verified "
             "FROM dp_model"
         )
-        creds = await self.db.aquery_one("SELECT COUNT(*) AS total FROM dp_credential")
-        users = await self.db.aquery_one("SELECT COUNT(*) AS total FROM dp_user")
-        categories = await self.db.aquery(
+        creds = await self.db.query_one("SELECT COUNT(*) AS total FROM dp_credential")
+        users = await self.db.query_one("SELECT COUNT(*) AS total FROM dp_user")
+        categories = await self.db.query(
             "SELECT capability, COUNT(*) AS total, SUM(enabled) AS enabled "
             "FROM dp_model GROUP BY capability"
         )

@@ -30,7 +30,7 @@ from divinepen.core.runtime import RunContext
 from divinepen.core.specs import ModelSpec, ParamsSchema, ResolvedModel, TaskStatus
 from divinepen.services.http import HttpxTransport
 
-from .db import Store
+from .db import connect_store
 from .settings import Settings
 from .store import Repo, SecretBox, SessionSigner, mask_secret, now_iso
 
@@ -511,9 +511,9 @@ def _preview_warnings(model: dict[str, Any], values: dict[str, Any]) -> list[str
 class App:
     """进程级单例：配置、存储、仓储、端口、能力注册表。"""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, store: Any) -> None:
         self.settings = settings
-        self.store = Store(settings.db_path)
+        self.store = store
         self.box = SecretBox(settings.credential_key)
         self.sessions = SessionSigner(settings.secret_key, settings.session_max_age_hours)
         self.repo = Repo(self.store, self.box)
@@ -528,9 +528,14 @@ class App:
         except Exception:
             self.registry = CapabilityRegistry()
 
+    @classmethod
+    async def create(cls, settings: Settings) -> App:
+        """存储连接是异步的，所以构造也必须是异步的。"""
+        return cls(settings, await connect_store(settings.db_dsn))
+
     async def aclose(self) -> None:
         await self.http.aclose()
-        self.store.close()
+        await self.store.aclose()
 
     def context(
         self,

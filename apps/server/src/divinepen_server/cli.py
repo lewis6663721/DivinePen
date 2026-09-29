@@ -11,14 +11,14 @@ import sys
 import anyio
 
 from . import runtime as rt
-from .db import Store
+from .db import connect_store
 from .settings import get_settings
 from .store import Repo, SecretBox, seed
 
 
 async def _seed(force: bool) -> int:
     settings = get_settings()
-    repo = Repo(Store(settings.db_path), SecretBox(settings.credential_key))
+    repo = Repo(await connect_store(settings.db_dsn), SecretBox(settings.credential_key))
     outcome = await seed(repo, force=force)
     models = outcome["models"]
     print(
@@ -27,15 +27,15 @@ async def _seed(force: bool) -> int:
     )
     if outcome.get("admin_created"):
         print("已创建默认管理员 admin / divinepen（上线前请改掉）")
-    print(f"数据库：{settings.db_path}")
+    print(f"数据库：{settings.db_label}")
     return 0
 
 
 async def _status() -> int:
     settings = get_settings()
-    instance = rt.App(settings)
+    instance = await rt.App.create(settings)
     overview = await instance.repo.overview()
-    print(f"数据库        {settings.db_path}")
+    print(f"数据库        {settings.db_label}")
     print(f"凭据加密      {instance.box.backend}")
     print(f"要求登录      {settings.auth_required}")
     print(f"真实计费调用  {settings.allow_billed_calls}")
@@ -48,7 +48,7 @@ async def _status() -> int:
 
 async def _gaps() -> int:
     settings = get_settings()
-    instance = rt.App(settings)
+    instance = await rt.App.create(settings)
     rows = await instance.repo.models()
     shown = 0
     for row in rows:

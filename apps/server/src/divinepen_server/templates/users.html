@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chip, empty %}
+
+{% block body %}
+<div class="page-head">
+  <h1>用户管理</h1>
+  <p>任务与用量都带 <code class="mono">user_id</code>，所以"谁花的钱"是可追的。
+     角色只有两档：<b>admin</b> 能改配置与模型，<b>user</b> 只能看和用。</p>
+</div>
+
+<section class="grid side-main">
+  <div>
+    <div class="tablewrap">
+      <table class="data">
+        <thead>
+          <tr><th>用户</th><th>角色</th><th>状态</th><th>创建时间</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr class="{% if not u.enabled %}rowdim{% endif %}">
+            <td><b>{{ u.display_name or u.username }}</b>
+              <div class="id">{{ u.username }} · {{ u.id }}</div></td>
+            <td class="tight">
+              <form method="post" action="/users/{{ u.id }}/role" class="toolbar">
+                <select name="role" onchange="this.form.submit()">
+                  <option value="user" {% if u.role == 'user' %}selected{% endif %}>user</option>
+                  <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>admin</option>
+                </select>
+              </form>
+            </td>
+            <td class="tight">{% if u.enabled %}{{ chip('启用', 'ok') }}{% else %}{{ chip('停用', 'danger') }}{% endif %}</td>
+            <td class="id">{{ u.created_at }}</td>
+            <td class="tight">
+              <div class="toolbar">
+                <form method="post" action="/users/{{ u.id }}/toggle">
+                  <input type="hidden" name="enabled" value="{{ 0 if u.enabled else 1 }}"/>
+                  <button class="btn ghost" type="submit">{{ '停用' if u.enabled else '启用' }}</button>
+                </form>
+                <form method="post" action="/users/{{ u.id }}/password"
+                      data-confirm="重置 {{ u.username }} 的密码？">
+                  <input type="password" name="password" placeholder="新密码" style="min-width:130px"/>
+                  <button class="btn ghost" type="submit">重置</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h3>新建用户</h3></div>
+    <div class="panel-body">
+      {% if settings.allow_register %}
+      <form method="post" action="/users" class="formgrid">
+        <div class="field">
+          <label class="lbl" for="u"><span>用户名</span><span class="req">必填</span></label>
+          <input id="u" type="text" name="username" required/>
+        </div>
+        <div class="field">
+          <label class="lbl" for="dn"><span>显示名</span></label>
+          <input id="dn" type="text" name="display_name"/>
+        </div>
+        <div class="field">
+          <label class="lbl" for="p"><span>密码</span><span class="req">必填</span></label>
+          <input id="p" type="password" name="password" required/>
+          <p class="hint">至少 6 位；服务端用 PBKDF2-SHA256 加盐哈希存储。</p>
+        </div>
+        <div class="field">
+          <label class="lbl" for="r"><span>角色</span></label>
+          <select id="r" name="role">
+            <option value="user">user</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+        <button class="btn primary" type="submit">创建</button>
+      </form>
+      {% else %}
+      <div class="alert"><b>已关闭注册</b><div>DIVINEPEN_ALLOW_REGISTER=false，页面不允许自助建号。</div></div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="alert bill">
+    <b>上线前</b>
+    <div>默认管理员 <code class="mono">admin / divinepen</code> 是开发口令，请先改掉，
+      再打开 <code class="mono">DIVINEPEN_AUTH_REQUIRED=true</code>；否则控制台对本机任何进程都是敞开的。</div>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chip, empty %}
+
+{% block body %}
+<div class="page-head">
+  <h1>能力目录</h1>
+  <p>这里列的是<b>能力</b>（干什么），不是模型（谁来干）。调用方只认能力 id，
+     例如 <code class="mono">media.burn_subtitles</code>；<b>用哪个模型由 Router 按策略决定</b>。
+     插件装上后，其能力会自动出现在这一页。</p>
+</div>
+
+<section>
+  <div class="caps">
+    {% for c in catalog %}
+    <a class="cap" href="/capabilities/{{ c.id }}">
+      <div class="top">
+        <span class="id">{{ c.id }}</span>
+        <span class="ver">v{{ c.version }}</span>
+      </div>
+      <h3>{{ c.name }}</h3>
+      <p>{{ c.description or '（未写描述）' }}</p>
+      <div class="foot">
+        {{ chip(c.category, 'sig') }}
+        {% if c.model_capability %}{{ chip('模型 · ' ~ c.model_capability, '') }}{% endif %}
+        {% if c.cost and c.cost.unit and c.cost.unit != 'free' %}{{ chip('计费 · ' ~ c.cost.unit, 'bill') }}{% else %}{{ chip('免费', 'ok') }}{% endif %}
+        {% if c.async_task %}{{ chip('异步') }}{% endif %}
+        {% if c.status != 'stable' %}{{ chip(c.status, 'bill') }}{% endif %}
+        {% if c.source and c.source != 'builtin' %}{{ chip('插件 · ' ~ c.source, 'sig') }}{% endif %}
+      </div>
+      <div class="foot" style="margin-top:6px">
+        {% if c.missing %}
+          {% for m in c.missing %}{{ chip('缺：' ~ m, 'danger') }}{% endfor %}
+        {% else %}{{ chip('就绪', 'ok') }}{% endif %}
+      </div>
+      {% if c.requires %}
+      <div class="foot" style="margin-top:6px">
+        {% for r in c.requires %}{{ chip('需要 ' ~ r) }}{% endfor %}
+      </div>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  {% if not catalog %}{{ empty('注册表是空的', '检查 divinepen.capabilities 是否可导入，或插件是否安装失败。') }}{% endif %}
+</section>
+{% endblock %}

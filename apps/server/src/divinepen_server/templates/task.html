@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chip, state %}
+
+{% block body %}
+<div class="page-head">
+  <h1>任务 {{ task.id }}</h1>
+  <p>{{ task.capability_id }} · {{ task.model }}</p>
+</div>
+
+<section class="grid side-main">
+  <div class="stack-v">
+    <div class="panel">
+      <div class="panel-head"><h3>状态</h3><span class="sub">{{ state(task.status) }}</span></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>进度</dt><dd>{{ task.progress }}% · 已轮询 {{ task.polls }} 次</dd>
+          <dt>远端 task_id</dt><dd><code class="mono">{{ task.remote_task_id or '—' }}</code></dd>
+          <dt>创建</dt><dd>{{ task.created_at }}</dd>
+          <dt>更新</dt><dd>{{ task.updated_at }}</dd>
+          <dt>结束</dt><dd>{{ task.finished_at or '—' }}</dd>
+          {% if task.error %}<dt>错误</dt><dd style="color:var(--danger)">{{ task.error }}</dd>{% endif %}
+        </dl>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>提交载荷</h3></div>
+      <div class="panel-body">{{ task.payload_obj|jsonhl }}</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>结果</h3></div>
+      <div class="panel-body">{{ task.result_obj|jsonhl }}</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h3>操作</h3></div>
+    <div class="panel-body stack-v">
+      <a class="btn ghost" href="/tasks">返回列表</a>
+      <div class="hint">一期只做台账展示与落库。轮询推进（后台 worker）在下一迭代接上 ——
+        那时这里会出现「取消 / 重试 / 下载产物」。</div>
+    </div>
+  </div>
+</section>
+{% endblock %}

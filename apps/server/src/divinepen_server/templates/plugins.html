@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chip, empty %}
+
+{% block body %}
+<div class="page-head">
+  <h1>插件管理</h1>
+  <p>智能体（财务视频、漫剧生成…）是<b>独立安装的插件</b>，通过 <code class="mono">entry_points</code>
+     被发现，随用随装。没装的智能体不会出现在这里，也不会拖慢底座。</p>
+</div>
+
+{% if plugin_error %}
+<section><div class="alert danger"><b>插件发现失败</b><div>{{ plugin_error }}</div></div></section>
+{% endif %}
+
+<section>
+  {% if plugins %}
+  <div class="tablewrap">
+    <table class="data">
+      <thead><tr><th>插件</th><th>版本</th><th>提供能力</th><th>依赖</th><th>状态</th></tr></thead>
+      <tbody>
+        {% for p in plugins %}
+        <tr>
+          <td><b>{{ p.manifest.name }}</b>
+            <div class="id">{{ p.manifest.id }} · {{ p.manifest.description }}</div></td>
+          <td class="tight">{{ chip(p.manifest.version) }}</td>
+          <td>{% for c in p.manifest.capabilities %}{{ chip(c) }} {% else %}—{% endfor %}</td>
+          <td>{% for r in p.manifest.requires %}{{ chip(r) }} {% else %}—{% endfor %}</td>
+          <td class="tight">
+            {% if p.missing %}{% for m in p.missing %}{{ chip('缺：' ~ m, 'danger') }}{% endfor %}
+            {% else %}{{ chip('已装载', 'ok') }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  {{ empty('还没有安装任何插件', '这是当前的真实状态 —— 底座先跑通，智能体后装。安装方式：pip install 某个 divinepen-agent-* 包，重启服务即可被发现。') }}
+  {% endif %}
+</section>
+
+<section>
+  <div class="panel">
+    <div class="panel-head"><h3>内核里的能力</h3><span class="sub">来自注册表</span></div>
+    <div class="panel-body">
+      {% for cid in registry_ids %}{{ chip(cid, 'sig') }} {% endfor %}
+      {% if not registry_ids %}<span style="color:var(--ink-3)">注册表为空 —— 内置能力没加载上。</span>{% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

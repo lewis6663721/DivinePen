@@ -81,6 +81,20 @@ PYTHONPATH=src .venv/bin/python -m pytest -q          # 契约测试
 `scripts/smoke.py` 会走完：能力注册 → 表单 schema 派生 → dry-run 打印真实命令行 →
 用 ffmpeg 真跑一次 `media.probe`。
 
+### 起控制台
+
+```bash
+uv pip install --python .venv/bin/python -e . -e apps/server --no-deps   # 或 make install
+make serve          # http://127.0.0.1:8801
+make seed           # 把内置模型目录写进 SQLite（默认不覆盖你改过的参数）
+make gaps           # 列出还不能放心调用的模型（待核对 / 未接入 / 已停用）
+```
+
+默认 **SQLite + 本地开发模式**：不配 MySQL、不配 Redis 也能把页面跑起来。
+默认 `admin / divinepen`（开发口令，上线前改掉），默认关闭真实计费调用。
+页面清单：总览 / 能力目录 / 模型管理 / 供应商 / 配置管理（API Key + 连通性测试）/
+用量与费用 / 任务中心 / 用户管理 / 插件管理。
+
 当脚本用：
 
 ```python
@@ -160,7 +174,7 @@ make smoke        # 端到端冒烟
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | **P0** | 仓库骨架 + 四层契约 + 冒烟通过 | ✅ |
-| **P1** | 服务端骨架 + 模型管理 + 阿里系目录入库 + 参数表单 | 🚧 |
+| **P1** | 服务端骨架 + 模型管理 + 阿里系目录入库 + 参数表单 | 🚧 控制台已跑通（SQLite 先行）；MySQL/Tortoise 待换 |
 | **P2** | 阿里系能力接入（LLM / 图像 / 视频 / 音频）+ ffmpeg 剪辑套件 | ⬜ |
 | **P3** | 编排层 + 可插拔智能体 + 首个业务插件 | ⬜ |
 
@@ -169,5 +183,7 @@ make smoke        # 端到端冒烟
 ## 已知问题
 
 - `wan2.7-videoedit` 命名与其它文档不一致，待与官方确认后统一。
-- `图生视频_hh.md` 的模型名疑为笔误（与文生视频文档重名），待确认。
+- `图生视频_hh.md` 的模型名疑为笔误（与文生视频文档重名），对应模型**默认停用**。
+- `llm.md` 里没核到 `qwen3.8-max` 这个写法，连通性测试默认模型暂用 `qwen-plus`（配置项可改）。
 - `语音合成qwen_tts.md` 缺声音复刻接口参考，`audio.tts.clone` 暂无法建模。
+- TTS / ASR 走 WebSocket，一期只登记不接入，页面上标"未接入"。

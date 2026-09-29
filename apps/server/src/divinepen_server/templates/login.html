@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>登录 · DivinePen</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='tokens.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}"/>
+</head>
+<body>
+<div class="login-wrap">
+  <form class="login" method="post" action="/login">
+    <div class="brand">
+      <span class="mark">DP</span>
+      <span><b>DivinePen</b><small>视频创作底座</small></span>
+    </div>
+    <h1>登录控制台</h1>
+    <p class="sub">模型目录、参数表单、用量与任务都在这一层看着。凭据加密状态：
+      {{ encryption if encryption is defined else 'plain' }}。</p>
+
+    {% if msg %}<div class="alert danger" style="margin-bottom:var(--s5)"><b>提示</b><div>{{ msg }}</div></div>{% endif %}
+
+    <div class="formgrid">
+      <div class="field">
+        <label class="lbl" for="username"><span>用户名</span></label>
+        <input id="username" type="text" name="username" autocomplete="username" required/>
+      </div>
+      <div class="field">
+        <label class="lbl" for="password"><span>密码</span></label>
+        <input id="password" type="password" name="password" autocomplete="current-password" required/>
+      </div>
+      <button class="btn primary" type="submit">登录</button>
+    </div>
+
+    <div class="hint" style="margin-top:var(--s5)">
+      首次部署会创建管理员 <code class="mono">admin / divinepen</code> ——
+      这是**开发用默认口令**，上线前请在「用户管理」里改掉，并打开
+      <code class="mono">DIVINEPEN_AUTH_REQUIRED=true</code>。
+    </div>
+  </form>
+</div>
+</body>
+</html>

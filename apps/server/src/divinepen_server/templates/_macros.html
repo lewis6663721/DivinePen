@@ -1,0 +1,110 @@
+{# 通用小组件。页面里所有"徽标/状态灯/参数控件"都走这里，
+   避免同一个概念在十个模板里长出十种写法。 #}
+
+{% macro chip(text, kind='') -%}
+<span class="chip {{ kind }}">{{ text }}</span>
+{%- endmacro %}
+
+{% macro badge_bool(flag, on='开启', off='关闭', kind='ok') -%}
+{% if flag %}{{ chip(on, kind) }}{% else %}{{ chip(off, '') }}{% endif %}
+{%- endmacro %}
+
+{% macro state(value) -%}
+<span class="state {{ value }}">{{ value }}</span>
+{%- endmacro %}
+
+{% macro billing_chip(unit) -%}
+{% if unit and unit != 'free' %}{{ chip('计费 · ' ~ unit, 'bill') }}{% else %}{{ chip('免费', 'ok') }}{% endif %}
+{%- endmacro %}
+
+{% macro verified_chip(verified, note='') -%}
+{% if verified %}{{ chip('已核对文档', 'ok') }}{% else %}{{ chip('待核对', 'bill') }}{% endif %}
+{%- endmacro %}
+
+{# ── 参数控件：唯一一处把 FieldSpec 变成 HTML 的地方 ─────────────── #}
+{% macro param_field(f, values={}) -%}
+{% set raw = values.get(f.key) %}
+{% set v = raw if raw is not none else f.default %}
+{% set ctl = control_of(f) %}
+<div class="field">
+  <label class="lbl" for="p-{{ f.key }}">
+    {% if f.billed %}<span class="dot-bill" title="该参数直接影响计费"></span>{% endif %}
+    <span>{{ f.label }}</span>
+    {% if f.required %}<span class="req">必填</span>{% endif %}
+    <code class="key">{{ f.key }}</code>
+  </label>
+  {% if ctl == 'select' %}
+    <select id="p-{{ f.key }}" name="{{ f.key }}">
+      {% if not f.required %}<option value="">（不传）</option>{% endif %}
+      {% for o in f.options %}
+      <option value="{{ o.value }}" {% if v is not none and v|string == o.value|string %}selected{% endif %}>{{ o.label }}</option>
+      {% endfor %}
+    </select>
+  {% elif ctl == 'switch' %}
+    <label class="check">
+      <input type="checkbox" name="{{ f.key }}" value="true" {% if v %}checked{% endif %}/>
+      <span>开启</span>
+    </label>
+  {% elif ctl in ('textarea', 'code-editor') %}
+    <textarea id="p-{{ f.key }}" name="{{ f.key }}" rows="{{ 5 if ctl == 'code-editor' else 3 }}"
+      placeholder="{{ f.placeholder }}">{{ v if v is not none else '' }}</textarea>
+  {% elif ctl == 'number' %}
+    <input id="p-{{ f.key }}" type="number" name="{{ f.key }}" value="{{ v if v is not none else '' }}"
+      {% if f.min is not none %}min="{{ f.min }}"{% endif %}
+      {% if f.max is not none %}max="{{ f.max }}"{% endif %}
+      {% if f.step %}step="{{ f.step }}"{% endif %}/>
+  {% else %}
+    <input id="p-{{ f.key }}" type="{{ 'url' if ctl == 'url-input' else 'text' }}" name="{{ f.key }}"
+      value="{{ v if v is not none else '' }}" placeholder="{{ f.placeholder }}"
+      {% if f.max_length %}maxlength="{{ f.max_length }}"{% endif %}/>
+  {% endif %}
+  {% if f.description %}<p class="hint">{{ f.description|bold }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{# ── 参数 ↔ 文档 对照表：这一页的核心证据 ─────────────────────────── #}
+{% macro param_table(groups) -%}
+<div class="tablewrap">
+  <table class="data">
+    <thead>
+      <tr>
+        <th>参数（点号路径）</th><th>类型</th><th>必填</th><th>默认</th><th>计费</th><th>文档摘录</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in groups %}
+        {% if g.fields %}
+        <tr><td colspan="6" class="id" style="background:var(--surface-2);color:var(--ink-3)">
+          {{ g.label }} · {{ g.key }}{% if g.description %} — {{ g.description }}{% endif %}
+        </td></tr>
+        {% for f in g.fields %}
+        <tr>
+          <td><code class="mono">{{ f.key }}</code><div style="color:var(--ink-4);font-size:11.5px">{{ f.label }}</div></td>
+          <td class="id">{{ f.type }}{% if control_of(f) != f.type %} <span style="color:var(--ink-4)">/ {{ control_of(f) }}</span>{% endif %}</td>
+          <td>{% if f.required %}{{ chip('必填', 'danger') }}{% else %}<span style="color:var(--ink-4)">可选</span>{% endif %}</td>
+          <td class="id">{{ f.default if f.default is not none else '—' }}</td>
+          <td>{% if f.billed %}{{ chip('计费', 'bill') }}{% else %}<span style="color:var(--ink-4)">—</span>{% endif %}</td>
+          <td style="max-width:46ch">{{ f.description|bold }}</td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+      {% endfor %}
+      {% if not groups or not groups|selectattr('fields')|list %}
+      <tr><td colspan="6"><span style="color:var(--ink-3)">这个模型还没有登记参数。</span></td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{%- endmacro %}
+
+{% macro empty(title, body, action_href='', action_label='') -%}
+<div class="empty">
+  <b>{{ title }}</b>
+  <p>{{ body }}</p>
+  {% if action_href %}<a class="btn" href="{{ action_href }}">{{ action_label }}</a>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro gap_alert(kind, label, body) -%}
+<div class="alert {{ kind }}"><b>{{ label }}</b><div>{{ body }}</div></div>
+{%- endmacro %}

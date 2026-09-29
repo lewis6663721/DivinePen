@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chip, param_field, param_table, empty %}
+
+{% block body %}
+<div class="page-head">
+  <h1>{{ model.name }}</h1>
+  <p>{{ model.notes or '（没有备注）' }}</p>
+</div>
+
+<section>
+  <div class="toolbar">
+    {{ chip(model.id, 'sig') }}
+    {{ chip(capability_label) }}
+    {{ chip(model.provider) }}
+    {{ chip(model.method ~ ' ' ~ model.path) }}
+    {% if model.mode == 'async_task' %}{{ chip('异步任务 · 需轮询', 'bill') }}{% else %}{{ chip('同步返回', 'ok') }}{% endif %}
+    {% if model.transport != 'http' %}{{ chip('传输 ' ~ model.transport, 'bill') }}{% endif %}
+    {% if model.verified %}{{ chip('参数已核对文档', 'ok') }}{% else %}{{ chip('参数待核对', 'bill') }}{% endif %}
+    {% if model.enabled %}{{ chip('启用', 'ok') }}{% else %}{{ chip('停用', 'danger') }}{% endif %}
+    {% if model.doc_url %}<a class="btn ghost" href="{{ model.doc_url }}" target="_blank" rel="noreferrer">接口文档 ↗</a>{% endif %}
+  </div>
+</section>
+
+{% if not model.verified %}
+<section>
+  <div class="alert bill">
+    <b>待核对</b>
+    <div>这个模型的参数<b>没有逐条对着文档核过</b>：{{ model.notes }}。
+      来源文档：<code class="mono">{{ model.source_doc or '—' }}</code>。
+      在它变成"已核对"之前，页面上的字段都只能当草稿。</div>
+  </div>
+</section>
+{% endif %}
+
+<section>
+  <div class="sec-label" style="margin-bottom:var(--s3)">
+    <b>计费参数</b> · 这几个值直接决定花多少
+  </div>
+  {% if model.billed_fields %}
+  <div class="metrics">
+    {% for f in model.billed_fields %}
+    <div class="metric hero">
+      <div class="k">{{ f.label }}</div>
+      <div class="v">{{ f.default if f.default is not none else '—' }}</div>
+      <div class="d"><code class="mono">{{ f.key }}</code></div>
+    </div>
+    {% endfor %}
+    <div class="metric">
+      <div class="k">计价单位</div>
+      <div class="v">{{ model.pricing_obj.unit or 'free' }}</div>
+      <div class="d">{{ model.pricing_obj.notes or '未登记计价口径' }}</div>
+    </div>
+  </div>
+  {% else %}
+  <div class="alert ok"><b>免费</b><div>该模型没有登记任何计费参数。</div></div>
+  {% endif %}
+</section>
+
+<section class="grid side-main">
+  <div class="panel">
+    <div class="panel-head">
+      <h3>参数</h3>
+      <span class="sub">点号路径 ⇄ 请求体嵌套；控件类型由字段类型派生</span>
+    </div>
+    <div class="panel-body">
+      <form method="post" action="/models/{{ model.id }}/preview">
+        {% for g in model.params_obj.groups %}
+          {% set visible = g.fields|rejectattr('advanced')|list %}
+          {% set advanced = g.fields|selectattr('advanced')|list %}
+          {% if visible %}
+          <div class="sec-label" style="margin:0 0 var(--s3)"><b>{{ g.label }}</b>
+            {% if g.description %}<span style="color:var(--ink-4);text-transform:none;font-size:12px">{{ g.description }}</span>{% endif %}
+          </div>
+          {% for f in visible %}{{ param_field(f, values) }}{% endfor %}
+          {% endif %}
+          {% if advanced %}
+          <details class="adv" data-remember="{{ model.id }}-{{ g.key }}-adv">
+            <summary>高级参数（{{ advanced|length }}）</summary>
+            {% for f in advanced %}{{ param_field(f, values) }}{% endfor %}
+          </details>
+          {% endif %}
+        {% endfor %}
+        {% if not model.fields %}
+          <p style="color:var(--ink-3);font-size:13px;margin:0 0 var(--s5)">该模型未登记参数（一期只做了登记，没有调用入口）。</p>
+        {% endif %}
+        <div style="display:flex;gap:var(--s3);align-items:center;margin-top:var(--s5)">
+          <button class="btn primary" type="submit">预演请求</button>
+          <span class="hint">按参数拼出真实请求体 —— 不联网、不扣费</span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="stack-v">
+    <div class="panel">
+      <div class="panel-head"><h3>发送方式</h3></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>Base URL</dt><dd><code class="mono">{{ provider.base_url if provider else '—' }}</code></dd>
+          <dt>地域</dt><dd>{{ model.region or (provider.region if provider else '—') }}
+            {{ chip('与 Key 同地域才通', 'bill') }}</dd>
+          <dt>方法</dt><dd><code class="mono">{{ model.method }} {{ model.path }}</code></dd>
+          <dt>固定 Header</dt><dd>{{ model.headers_obj|jsonhl }}</dd>
+          <dt>凭据</dt><dd>
+            {% if credential and credential.has_key %}{{ chip('已配置 ' ~ credential.api_key_masked, 'ok') }}
+            {% else %}{{ chip('未配置 API Key', 'danger') }} <a href="/credentials">去配置</a>{% endif %}
+          </dd>
+          {% if model.poll_obj %}
+          <dt>轮询</dt><dd><code class="mono">{{ model.poll_obj.path }}</code>
+            <div class="hint">task_id ← <code class="mono">{{ model.poll_obj.task_id_path }}</code>，
+              状态 ← <code class="mono">{{ model.poll_obj.status_path }}</code>，间隔 {{ model.poll_obj.interval_seconds }}s</div></dd>
+          <dt>产物</dt><dd>{% for a in model.poll_obj.artifacts %}{{ chip(a.kind ~ ' ← ' ~ a.path) }} {% endfor %}</dd>
+          {% endif %}
+          <dt>来源文档</dt><dd><code class="mono">{{ model.source_doc or '—' }}</code></dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>操作</h3></div>
+      <div class="panel-body stack-v">
+        <form method="post" action="/models/{{ model.id }}/toggle">
+          <input type="hidden" name="enabled" value="{{ 0 if model.enabled else 1 }}"/>
+          <button class="btn {{ 'ghost' if model.enabled else 'primary' }}" type="submit">
+            {{ '停用该模型' if model.enabled else '启用该模型' }}
+          </button>
+        </form>
+        <div class="hint">停用后 Router 不会再选中它；记录与参数都还在。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{% if preview_error %}
+<section>
+  <div class="alert danger">
+    <b>参数校验失败</b>
+    <div>{{ preview_error }}</div>
+  </div>
+</section>
+{% endif %}
+
+{% if preview %}
+<section>
+  <div class="panel">
+    <div class="panel-head">
+      <h3>将要发出的请求</h3>
+      <span class="sub">与真实调用共用同一份组装代码</span>
+      <span style="margin-left:auto">{{ chip('dry-run', 'ok') }}</span>
+    </div>
+    <div class="panel-body stack-v">
+      {% for w in preview.warnings %}
+      <div class="alert bill"><b>注意</b><div>{{ w }}</div></div>
+      {% endfor %}
+
+      <dl class="kv">
+        <dt>请求</dt><dd><code class="mono">{{ preview.method }} {{ preview.url }}</code></dd>
+        <dt>Headers</dt><dd>{{ preview.headers|jsonhl }}</dd>
+        {% if preview.poll_url %}
+        <dt>随后轮询</dt><dd><code class="mono">GET {{ preview.poll_url }}</code></dd>
+        {% endif %}
+      </dl>
+
+      <div>
+        <div class="sec-label" style="margin-bottom:var(--s2)"><b>Request Body</b></div>
+        {{ preview.body|jsonhl }}
+      </div>
+
+      <div>
+        <div class="sec-label" style="margin-bottom:var(--s2)"><b>curl（可直接复制）</b>
+          <button class="btn ghost" type="button" data-copy="#curl" style="margin-left:var(--s3)">复制</button>
+        </div>
+        <pre class="code" id="curl">{{ preview.curl }}</pre>
+      </div>
+    </div>
+
+    <div class="billbar">
+      <span class="k">预计花费</span>
+      <span class="v">
+        {% if preview.estimate.billed %}
+          {% if preview.estimate.known %}≈ {{ preview.estimate.amount }} {{ preview.estimate.currency }}
+          {% else %}金额未知{% endif %}
+        {% else %}免费{% endif %}
+      </span>
+      <span class="calc">
+        {% if preview.estimate.billed %}
+          计价单位 {{ preview.estimate.unit }}
+          {% if preview.estimate.quantity %} × {{ preview.estimate.quantity }}{% endif %}
+          {% if preview.estimate.unit_price %} × 单价 {{ preview.estimate.unit_price }}{% endif %}
+          <br/>{{ preview.estimate.notes }}
+        {% else %}
+          该模型不产生费用
+        {% endif %}
+      </span>
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<section>
+  <div class="sec-label" style="margin-bottom:var(--s3)">
+    <b>参数 ↔ 接口文档</b> · 一行一个参数，key 与文档逐字对应
+  </div>
+  {{ param_table(model.params_obj.groups) }}
+</section>
+{% endblock %}

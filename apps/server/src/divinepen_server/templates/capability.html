@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chip, param_field, param_table, empty %}
+
+{% block body %}
+<div class="page-head">
+  <h1>{{ cap.name }}</h1>
+  <p>{{ cap.description or '（未写描述）' }}
+     {% if source and source != 'builtin' %}来源：{{ source }}。{% endif %}</p>
+</div>
+
+<section>
+  <div class="toolbar" style="margin-bottom:var(--s4)">
+    {{ chip(cap.id, 'sig') }}
+    {{ chip('v' ~ cap.version) }}
+    {{ chip(cap.category) }}
+    {% if cap.model_capability %}{{ chip('模型分类 · ' ~ cap.model_capability) }}{% endif %}
+    {% if cap.async_task %}{{ chip('异步任务', 'bill') }}{% endif %}
+    {% if cap.cacheable %}{{ chip('可缓存') }}{% endif %}
+    {% if cap.cost and cap.cost.unit and cap.cost.unit != 'free' %}{{ chip('计费 · ' ~ cap.cost.unit, 'bill') }}{% else %}{{ chip('免费', 'ok') }}{% endif %}
+    {% for r in cap.requires %}{{ chip('需要 ' ~ r) }}{% endfor %}
+  </div>
+
+  {% if missing %}
+  <div class="stack-v" style="margin-bottom:var(--s5)">
+    {% for m in missing %}<div class="alert danger"><b>就绪检查</b><div>{{ m }}</div></div>{% endfor %}
+  </div>
+  {% else %}
+  <div class="alert ok" style="margin-bottom:var(--s5)"><b>就绪检查</b><div>前置条件全部满足。</div></div>
+  {% endif %}
+</section>
+
+<section class="grid side-main">
+  <div class="panel">
+    <div class="panel-head">
+      <h3>参数</h3>
+      <span class="sub">由能力的 Input 模型派生，禁止手写 JSON Schema</span>
+    </div>
+    <div class="panel-body">
+      <form method="post" action="/capabilities/{{ cap.id }}/dry-run">
+        {% for g in cap.form.groups %}
+          {% if g.fields %}
+          <div class="sec-label" style="margin:0 0 var(--s3)"><b>{{ g.label }}</b> <code class="mono" style="text-transform:none">{{ g.key }}</code>
+            {% if g.description %}<span style="color:var(--ink-4);font-size:12px">{{ g.description }}</span>{% endif %}
+          </div>
+          {% for f in g.fields %}{{ param_field(f, values) }}{% endfor %}
+          {% endif %}
+        {% endfor %}
+        {% if not cap.form.groups %}
+          <p style="color:var(--ink-3);font-size:13px;margin:0 0 var(--s5)">该能力不需要参数。</p>
+        {% endif %}
+        <button class="btn primary" type="submit" data-confirm="这一步只是预演：不联网、不扣费。继续？">预演请求</button>
+        <span class="hint" style="margin-left:var(--s3)">dry-run：算出真实请求与命令，但不执行</span>
+      </form>
+    </div>
+  </div>
+
+  <div class="stack-v">
+    <div class="panel">
+      <div class="panel-head"><h3>操作</h3></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>能力 id</dt><dd><code class="mono">{{ cap.id }}</code></dd>
+          <dt>分类</dt><dd>{{ cap.category }}</dd>
+          <dt>状态</dt><dd>{{ chip(cap.status, 'ok' if cap.status == 'stable' else 'bill') }}</dd>
+          <dt>绑定模型</dt><dd>{{ cap.model_capability or '不绑模型（纯本地能力）' }}</dd>
+          <dt>标签</dt><dd>{% for t in cap.tags %}{{ chip(t) }} {% else %}—{% endfor %}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</section>
+
+{% if result %}
+<section>
+  {% if result.kind == 'ok' %}
+  <div class="panel">
+    <div class="panel-head">
+      <h3>预演结果</h3>
+      <span class="sub">{{ result.summary }}</span>
+      <span style="margin-left:auto">{{ chip(result.status, 'ok') }}</span>
+    </div>
+    {% if result.plan %}
+    <div class="panel-body stack-v">
+      {% if result.plan.warnings %}
+      {% for w in result.plan.warnings %}
+      <div class="alert bill"><b>注意</b><div>{{ w }}</div></div>
+      {% endfor %}
+      {% endif %}
+      <dl class="kv">
+        <dt>能力</dt><dd><code class="mono">{{ result.plan.capability_id }}</code></dd>
+        <dt>供应商</dt><dd>{{ result.plan.provider or '—' }}</dd>
+        <dt>模型</dt><dd><code class="mono">{{ result.plan.model_key or '—' }}</code> {{ result.plan.model_name or '' }}</dd>
+        <dt>计费单位</dt><dd>{% if result.plan.requires_billing %}{{ chip(result.plan.estimated_unit ~ ' × ' ~ (result.plan.estimated_quantity or '?'), 'bill') }}
+          {% if result.plan.estimated_amount %}≈ {{ result.plan.estimated_amount }} {{ result.plan.currency }}{% else %}金额未知{% endif %}
+          {% else %}{{ chip('免费', 'ok') }}{% endif %}</dd>
+        <dt>步骤</dt><dd>{% for s in result.plan.steps %}<div>{{ loop.index }}. {{ s }}</div>{% else %}—{% endfor %}</dd>
+        {% if result.plan.poll %}
+        <dt>轮询</dt><dd><code class="mono">{{ result.plan.poll.path }}</code> · 间隔 {{ result.plan.poll.interval_seconds }}s · 超时 {{ result.plan.poll.timeout_seconds }}s</dd>
+        {% endif %}
+      </dl>
+
+      {% for r in result.plan.requests %}
+      <details class="adv" open>
+        <summary>请求 {{ loop.index }} · {{ r.kind }}</summary>
+        <dl class="kv" style="margin-bottom:var(--s3)">
+          {% if r.kind == 'command' %}
+          <dt>argv</dt><dd><code class="mono">{{ r.command|join(' ') }}</code></dd>
+          {% else %}
+          <dt>方法</dt><dd><code class="mono">{{ r.method }}</code></dd>
+          <dt>URL</dt><dd><code class="mono">{{ r.url }}</code></dd>
+          <dt>Headers</dt><dd>{{ r.headers|jsonhl }}</dd>
+          {% endif %}
+          {% if r.note %}<dt>说明</dt><dd>{{ r.note }}</dd>{% endif %}
+        </dl>
+        {% if r.body is not none %}
+        <div class="sec-label" style="margin-bottom:var(--s2)"><b>Body</b></div>
+        {{ r.body|jsonhl }}
+        {% endif %}
+      </details>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="alert danger">
+    <b>预演失败</b>
+    <div>{{ result.error.message if result.error and result.error.message is defined else result.error }}</div>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+<section>
+  <div class="sec-label" style="margin-bottom:var(--s3)"><b>参数 ↔ 接口文档</b> · 页面控件与文档参数一一对应的凭据</div>
+  {{ param_table(cap.form.groups) }}
+</section>
+{% endblock %}

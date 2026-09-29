@@ -25,14 +25,20 @@ smoke: ## 端到端冒烟：注册 → 表单 → dry-run → 真跑本地能力
 
 check: lint type test ## 提交前全量检查
 
-run: ## 启动后台服务
-	uv run --project apps/server uvicorn divinepen_server.main:app --reload --port 8801
+run: ## 启动后台服务（控制台 + 任务中心）
+	uv run --project apps/server uvicorn divinepen_server.web:app --reload --port 8801
+
+serve: ## 前台启动后台服务（不起 reload，适合只看页面）
+	.venv/bin/python -m uvicorn divinepen_server.web:app --host 127.0.0.1 --port 8801
 
 migrate: ## 生成/应用数据库迁移（aerich）
 	cd apps/server && uv run aerich upgrade
 
 seed: ## 把内置模型目录写入数据库（不覆盖已改过的参数）
-	cd apps/server && uv run python -m divinepen_server.db.seed
+	.venv/bin/python -m divinepen_server.cli seed
+
+gaps: ## 列出还不能放心调用的模型（待核对 / 未接入 / 已停用）
+	.venv/bin/python -m divinepen_server.cli gaps
 
 specimen: ## 打开视觉方向样张
 	open design/specimen.html

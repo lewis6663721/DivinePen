@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chip, empty %}
+
+{% block body %}
+<div class="page-head">
+  <h1>供应商</h1>
+  <p>供应商是"模型从哪来"这一层：Base URL、地域、鉴权方式。<b>模型、Endpoint、API Key 必须同地域</b>，
+     否则调用会直接失败 —— 这一页把地域写在明面上，就是为了让这种错误一眼可见。</p>
+</div>
+
+<section>
+  <div class="tablewrap">
+    <table class="data">
+      <thead>
+        <tr><th>供应商</th><th>Base URL</th><th>地域</th><th>鉴权</th><th class="num">模型</th><th>凭据</th><th>状态</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for p in providers %}
+        <tr class="{% if not p.enabled %}rowdim{% endif %}">
+          <td>
+            <b>{{ p.name }}</b>
+            <div class="id">{{ p.code }}{% if p.notes %} · {{ p.notes }}{% endif %}</div>
+          </td>
+          <td><code class="mono">{{ p.base_url }}</code></td>
+          <td class="tight">{{ chip(p.region or '不限', 'sig') }}</td>
+          <td class="tight">{{ chip(p.auth_type) }}</td>
+          <td class="num">{{ model_counts.get(p.code, 0) }}</td>
+          <td class="tight">
+            {% set c = credentials.get(p.code) %}
+            {% if c and c.has_key %}{{ chip(c.api_key_masked, 'ok') }}
+            {% else %}{{ chip('未配置', 'danger') }} <a href="/credentials">去配置</a>{% endif %}
+          </td>
+          <td class="tight">{% if p.enabled %}{{ chip('启用', 'ok') }}{% else %}{{ chip('停用', 'danger') }}{% endif %}</td>
+          <td class="tight">
+            <form method="post" action="/providers/{{ p.code }}/toggle">
+              <input type="hidden" name="enabled" value="{{ 0 if p.enabled else 1 }}"/>
+              <button class="btn ghost" type="submit">{{ '停用' if p.enabled else '启用' }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="alert sig">
+    <b>地域</b>
+    <div>北京站 <code class="mono">dashscope.aliyuncs.com</code> 与国际站 <code class="mono">dashscope-intl.aliyuncs.com</code>
+      的 Key 不通用。新域名形如 <code class="mono">https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com</code>，
+      接入时需要在凭据里补 WorkspaceId（一期先留字段，未做请求改造）。</div>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chip, empty %}
+
+{% block body %}
+<div class="page-head">
+  <h1>用量与费用</h1>
+  <p>只有<b>真实成功的调用</b>才落台账；dry-run 不入账。金额分三种状态：
+     <b>已算出</b>（登记了单价）、<b>金额未知</b>（口径已知但单价没登记）、<b>免费</b>。
+     不把"未知"写成 0，是这个页面最基本的诚实。</p>
+</div>
+
+<section>
+  <div class="metrics">
+    <div class="metric">
+      <div class="k">调用总数</div>
+      <div class="v">{{ (summary.totals or {}).calls or 0 }}</div>
+      <div class="d">今日 {{ (summary.totals or {}).today_calls or 0 }} 次</div>
+    </div>
+    <div class="metric hero">
+      <div class="k">今日花费</div>
+      <div class="v">{{ (summary.totals or {}).today_amount|money }}</div>
+      <div class="d">累计 {{ (summary.totals or {}).amount|money }}</div>
+    </div>
+    <div class="metric">
+      <div class="k">待回填金额</div>
+      <div class="v">{{ pending }}</div>
+      <div class="d">已计费但单价未登记，金额留空</div>
+    </div>
+    <div class="metric">
+      <div class="k">费用告警阈值</div>
+      <div class="v">{{ settings_map.get('cost_alert_threshold', '50') }}<small>元</small></div>
+      <div class="d">超过即提醒（下个迭代接通知）</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="panel">
+    <div class="panel-head"><h3>按模型汇总</h3><span class="sub">金额降序</span></div>
+    <div class="panel-body" style="padding:0">
+      <div class="tablewrap" style="border:0">
+        <table class="data">
+          <thead><tr><th>模型</th><th class="num">调用</th><th class="num">金额</th></tr></thead>
+          <tbody>
+            {% for row in summary.by_model %}
+            <tr>
+              <td><code class="mono">{{ row.model or '—' }}</code></td>
+              <td class="num">{{ row.calls }}</td>
+              <td class="num">{{ row.amount|money }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" style="color:var(--ink-3)">还没有任何调用记录。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-label" style="margin-bottom:var(--s3)"><b>台账明细</b> · 最近 200 条</div>
+  {% if entries %}
+  <div class="tablewrap">
+    <table class="data">
+      <thead>
+        <tr><th>时间</th><th>能力</th><th>模型</th><th>单位</th><th class="num">数量</th><th class="num">金额</th><th>任务</th></tr>
+      </thead>
+      <tbody>
+        {% for e in entries %}
+        <tr>
+          <td class="id">{{ e.at }}</td>
+          <td class="tight"><code class="mono">{{ e.capability_id }}</code></td>
+          <td class="tight"><code class="mono">{{ e.model }}</code></td>
+          <td class="tight">{{ chip(e.unit, 'bill' if e.unit != 'free' else 'ok') }}</td>
+          <td class="num">{{ e.quantity }}</td>
+          <td class="num">{{ e.amount|money(e.currency) }}</td>
+          <td class="tight">{% if e.task_id %}<a href="/tasks/{{ e.task_id }}">{{ e.task_id }}</a>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  {{ empty('台账是空的', '这是正常的 —— 现在还没有发生过真实调用。等第一次真实调用成功，这里会出现第一条记录。', '/credentials', '去配置 Key') }}
+  {% endif %}
+</section>
+
+<section>
+  <div class="panel">
+    <div class="panel-head"><h3>告警阈值</h3></div>
+    <div class="panel-body">
+      <form method="post" action="/settings/cost-threshold" class="toolbar">
+        <input type="number" name="value" step="0.01" min="0"
+               value="{{ settings_map.get('cost_alert_threshold', '50') }}" style="max-width:180px"/>
+        <button class="btn" type="submit">保存</button>
+        <span class="hint">单位：元。一期只落配置，通知渠道（邮件/IM）在后续迭代接。</span>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}

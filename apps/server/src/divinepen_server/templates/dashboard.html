@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chip, state, empty, gap_alert, billing_chip %}
+
+{% block body %}
+<div class="page-head">
+  <h1>总览</h1>
+  <p>一处看清四件事：<b>能做什么</b>（能力目录）、<b>用谁做</b>（模型目录）、
+     <b>花了多少</b>（用量台账）、<b>卡在哪</b>（缺口清单）。下面的数字全部读自数据库与能力注册表，没有占位数据。</p>
+</div>
+
+<section>
+  <div class="metrics">
+    <div class="metric">
+      <div class="k">启用模型</div>
+      <div class="v">{{ (overview.models or {}).enabled or 0 }}<small>/ {{ (overview.models or {}).total or 0 }}</small></div>
+      <div class="d">库里共 {{ (overview.models or {}).total or 0 }} 个，其中 {{ (overview.models or {}).verified or 0 }} 个参数已核对文档</div>
+    </div>
+    <div class="metric">
+      <div class="k">已注册能力</div>
+      <div class="v">{{ capabilities|length }}</div>
+      <div class="d">来自能力注册表（内置 + 已装插件）</div>
+    </div>
+    <div class="metric">
+      <div class="k">今日调用</div>
+      <div class="v">{{ (usage.totals or {}).today_calls or 0 }}<small>次</small></div>
+      <div class="d">累计 {{ (usage.totals or {}).calls or 0 }} 次</div>
+    </div>
+    <div class="metric hero">
+      <div class="k">今日花费</div>
+      <div class="v">{{ (usage.totals or {}).today_amount|money }}</div>
+      <div class="d">累计 {{ (usage.totals or {}).amount|money }} · 只有真实调用才记账</div>
+    </div>
+  </div>
+</section>
+
+{% if gaps %}
+<section>
+  <div class="sec-label" style="margin-bottom:var(--s3)"><b>缺口清单</b> · 在跑之前先把这些消掉</div>
+  <div class="stack-v">
+    {% for g in gaps %}
+    <div class="alert bill">
+      <b>待办</b>
+      <div><a href="/models/{{ g.id }}">{{ g.name }}</a> —— {{ g.note }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section>
+  <div class="sec-label" style="margin-bottom:var(--s4)"><b>能力就绪</b> · 每个能力的自述与体检结果</div>
+  <div class="caps">
+    {% for c in capabilities %}
+    <a class="cap" href="/capabilities/{{ c.id }}">
+      <div class="top">
+        <span class="id">{{ c.id }}</span>
+        <span class="ver">v{{ c.version }}</span>
+      </div>
+      <h3>{{ c.name }}</h3>
+      <p>{{ c.description or '（未写描述）' }}</p>
+      <div class="foot">
+        {{ chip(c.category, 'sig') }}
+        {% if c.model_capability %}{{ chip('模型 · ' ~ c.model_capability) }}{% endif %}
+        {% if c.cost and c.cost.unit and c.cost.unit != 'free' %}{{ chip('计费 · ' ~ c.cost.unit, 'bill') }}{% else %}{{ chip('免费', 'ok') }}{% endif %}
+        {% if c.async_task %}{{ chip('异步任务') }}{% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% if not capabilities %}
+  {{ empty('还没有注册任何能力', '内置能力应至少有 media.probe。请检查 divinepen.capabilities 是否可导入。') }}
+  {% endif %}
+</section>
+
+<section class="grid c2">
+  <div class="panel">
+    <div class="panel-head"><h3>模型分布</h3><span class="sub">按能力分类</span></div>
+    <div class="panel-body">
+      <div class="tablewrap" style="border:0">
+        <table class="data">
+          <thead><tr><th>能力分类</th><th class="num">总数</th><th class="num">启用</th><th></th></tr></thead>
+          <tbody>
+            {% for capability, rows in models_by_category.items() %}
+            <tr>
+              <td><a href="/models?capability={{ capability }}"><code class="mono">{{ capability }}</code></a></td>
+              <td class="num">{{ rows|length }}</td>
+              <td class="num">{{ rows|selectattr('enabled')|list|length }}</td>
+              <td class="tight"><a class="btn ghost" href="/models?capability={{ capability }}">查看</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" style="color:var(--ink-3)">库里还没有模型。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack-v">
+    <div class="panel">
+      <div class="panel-head"><h3>台账</h3><span class="sub">空就是空，不编数据</span></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>任务</dt>
+          <dd>{% for s, n in task_counts.items() %}{{ chip(s ~ ' ' ~ n, 'bill') }} {% else %}<span style="color:var(--ink-3)">还没有任务记录</span>{% endfor %}</dd>
+          <dt>凭据</dt>
+          <dd>
+            {% for c in credentials %}
+              {{ chip(c.provider ~ (' · 已配置' if c.has_key else ' · 缺 Key'), 'ok' if c.has_key else 'danger') }}
+            {% else %}<span style="color:var(--ink-3)">未配置任何供应商凭据</span>{% endfor %}
+          </dd>
+          <dt>模型加载</dt>
+          <dd>
+            {% if seed_result and seed_result.models %}
+              本次启动：新增 {{ seed_result.models.inserted }} · 更新 {{ seed_result.models.updated }} · 跳过 {{ seed_result.models.skipped }}
+            {% else %}—{% endif %}
+          </dd>
+          <dt>凭据存储</dt>
+          <dd>
+            {% if encryption == 'fernet' %}{{ chip('Fernet 加密', 'ok') }}
+            {% else %}{{ chip('明文（未配置加密密钥）', 'bill') }}{% endif %}
+          </dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>下一步</h3></div>
+      <div class="panel-body stack-v">
+        <div class="alert sig">
+          <b>先配 Key</b>
+          <div>到 <a href="/credentials">配置管理</a> 填阿里云百炼的 API Key，然后点「零成本探活」。
+            真实计费调用默认关闭，需要显式打开开关。</div>
+        </div>
+        <div class="alert">
+          <b>再看参数</b>
+          <div>打开任一模型，点「预演请求」——页面会按点号路径把参数拼成文档要求的请求体，
+            一个字都不联网，却能看清到底会发什么。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

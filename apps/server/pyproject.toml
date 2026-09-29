@@ -1,0 +1,18 @@
+[project]
+name = "divinepen-server"
+version = "0.1.0.dev0"
+description = "DivinePen 后台服务：模型管理 / 配置 / 费用 / 任务中心"
+requires-python = ">=3.12"
+dependencies = [
+  "divinepen",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "jinja2>=3.1",
+  "python-multipart>=0.0.9",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/divinepen_server"]
+
+[tool.uv.sources]
+divinepen = { workspace = true }

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chip, state, empty %}
+
+{% block body %}
+<div class="page-head">
+  <h1>任务中心</h1>
+  <p>异步视频任务的账本。<b>提交那一刻远端 task_id 就落库</b> —— 服务重启、进程崩了都不丢，
+     因为"钱已经花了但产物不知道在哪"是最不能接受的状态。</p>
+</div>
+
+<section>
+  <div class="toolbar" style="margin-bottom:var(--s4)">
+    <a class="btn {{ 'ghost' if selected_status else 'primary' }}" href="/tasks">全部</a>
+    {% for s in all_statuses %}
+    <a class="btn {{ 'primary' if selected_status == s else 'ghost' }}" href="/tasks?status={{ s }}">
+      {{ s }}{% if task_counts.get(s) %} <span class="count">{{ task_counts[s] }}</span>{% endif %}
+    </a>
+    {% endfor %}
+  </div>
+
+  {% if tasks %}
+  <div class="tablewrap">
+    <table class="data">
+      <thead>
+        <tr><th>任务</th><th>能力 / 模型</th><th>状态</th><th class="num">进度</th><th>远端 task_id</th><th>创建</th><th>更新</th></tr>
+      </thead>
+      <tbody>
+        {% for t in tasks %}
+        <tr>
+          <td><a href="/tasks/{{ t.id }}"><code class="mono">{{ t.id }}</code></a>
+            <div class="filmstrip" style="max-width:180px">
+              {% for i in range(10) %}
+              <i class="{% if t.status == 'SUCCEEDED' or (t.status == 'RUNNING' and i * 10 < t.progress) %}done{% elif t.status == 'RUNNING' and i * 10 == t.progress %}now{% endif %}"></i>
+              {% endfor %}
+            </div>
+          </td>
+          <td class="tight">
+            <code class="mono">{{ t.capability_id }}</code>
+            <div class="id">{{ t.model }}</div>
+          </td>
+          <td class="tight">{{ state(t.status) }}</td>
+          <td class="num">{{ t.progress }}%</td>
+          <td class="tight"><code class="mono">{{ t.remote_task_id or '—' }}</code></td>
+          <td class="id">{{ t.created_at }}</td>
+          <td class="id">{{ t.updated_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  {{ empty('还没有任务', '任务中心会在第一次异步视频调用之后开始有内容。现在模型目录已经就位，但还没发生过真实调用 —— 这也是为什么这里是空的。', '/models', '去看模型') }}
+  {% endif %}
+</section>
+{% endblock %}

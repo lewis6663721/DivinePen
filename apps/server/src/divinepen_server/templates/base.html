@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>{{ title }} · DivinePen</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='tokens.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}"/>
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <a class="brand" href="/">
+      <span class="mark">DP</span>
+      <span><b>DivinePen</b><small>视频创作底座</small></span>
+    </a>
+    {% for group, items in nav %}
+    <div class="navgroup">
+      <span>{{ group }}</span>
+      {% for href, label, key in items %}
+      <a href="{{ href }}"
+         {% if path == href or (href != '/' and path.startswith(href ~ '/')) %}aria-current="page"{% endif %}>
+        <i></i>{{ label }}
+        {% if key == 'tasks' and counts and counts.tasks_active %}
+        <span class="count">{{ counts.tasks_active }}</span>
+        {% elif key == 'models' and counts and counts.models and counts.models.enabled %}
+        <span class="count">{{ counts.models.enabled }}</span>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </div>
+    {% endfor %}
+    <div class="side-foot">
+      {% if settings.auth_required and user %}
+      <div class="who">已登录 · <b>{{ user.display_name or user.username }}</b></div>
+      <form method="post" action="/logout"><button class="btn ghost" type="submit">退出登录</button></form>
+      {% else %}
+      <div class="who">本地开发模式 · <b>未启用登录</b></div>
+      <div class="who" style="font-size:11px;color:var(--ink-4)">
+        真实计费调用：{{ '已开启' if settings.allow_billed_calls else '关闭' }} ·
+        凭据加密：{{ encryption if encryption is defined else 'plain' }}
+      </div>
+      {% endif %}
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="crumb">DivinePen / <b>{{ title }}</b></div>
+      <div class="spacer"></div>
+      {% block topbar %}{% endblock %}
+    </div>
+
+    {% block body %}{% endblock %}
+
+    <div class="footline">
+      <span>divinepen 0.1.0.dev0</span>
+      <span>数据库 {{ settings.db_path }}</span>
+      <span>产物目录 {{ settings.media_root }}</span>
+      <span>{{ settings.region if settings.region is defined else 'cn-beijing' }}</span>
+    </div>
+  </main>
+</div>
+
+{% if msg %}
+<div class="flashes">
+  <div class="flash {{ level if level != 'ok' else '' }}">
+    <div>
+      <b>{% if level == 'danger' %}操作未完成{% elif level == 'bill' %}请注意{% else %}已完成{% endif %}</b>
+      {{ msg }}
+    </div>
+    <button type="button" aria-label="关闭">✕</button>
+  </div>
+</div>
+{% endif %}
+
+<script src="{{ url_for('static', path='app.js') }}"></script>
+</body>
+</html>

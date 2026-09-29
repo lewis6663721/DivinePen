@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chip, empty %}
+
+{% block body %}
+<div class="page-head">
+  <h1>模型管理</h1>
+  <p>库里的每一个模型都是一行记录：<b>怎么发</b>（method / path / headers / 同步或异步轮询）、
+     <b>能填什么</b>（点号路径参数 schema）、<b>怎么算钱</b>（计价单位与计费参数）。
+     参数表格里列的 key 与接口文档逐字对应，点开任意模型可以现场预演请求。</p>
+</div>
+
+<section>
+  <div class="toolbar" style="margin-bottom:var(--s4)">
+    <form method="get" action="/models">
+      <select name="capability" onchange="this.form.submit()">
+        <option value="">全部能力分类</option>
+        {% for c in categories %}
+        <option value="{{ c }}" {% if selected.capability == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+      <select name="provider" onchange="this.form.submit()">
+        <option value="">全部供应商</option>
+        {% for p in provider_list %}
+        <option value="{{ p.code }}" {% if selected.provider == p.code %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" data-filter="#model-table" placeholder="过滤模型名 / 参数…" style="min-width:220px"/>
+      {% if selected.capability or selected.provider %}<a class="btn ghost" href="/models">清空筛选</a>{% endif %}
+    </form>
+    <div class="spacer" style="margin-left:auto"></div>
+    <form method="post" action="/catalog/reseed"
+          data-confirm="重新导入目录：默认只补新增、跳过已有记录，不会覆盖你改过的参数。继续？">
+      <input type="hidden" name="force" value="0"/>
+      <button class="btn" type="submit">从目录补齐新增</button>
+    </form>
+    <form method="post" action="/catalog/reseed"
+          data-confirm="强制重写：会用目录覆盖你在页面上改过的全部参数。确定？">
+      <input type="hidden" name="force" value="1"/>
+      <button class="btn ghost" type="submit">强制按目录重写</button>
+    </form>
+  </div>
+
+  <div class="metrics" style="margin-bottom:var(--s5)">
+    <div class="metric">
+      <div class="k">筛选结果</div>
+      <div class="v">{{ total }}<small>个模型</small></div>
+      <div class="d">{{ grouped|length }} 个能力分类</div>
+    </div>
+    <div class="metric">
+      <div class="k">参数未核对</div>
+      <div class="v">
+        {% set ns = namespace(n=0) %}
+        {% for _, rows in grouped %}{% for r in rows if not r.verified %}{% set ns.n = ns.n + 1 %}{% endfor %}{% endfor %}
+        {{ ns.n }}<small>个</small>
+      </div>
+      <div class="d">这些模型的字段可能随文档变动，页面会标出来</div>
+    </div>
+    <div class="metric">
+      <div class="k">未接入传输</div>
+      <div class="v">
+        {% set ns2 = namespace(n=0) %}
+        {% for _, rows in grouped %}{% for r in rows if r.transport != 'http' %}{% set ns2.n = ns2.n + 1 %}{% endfor %}{% endfor %}
+        {{ ns2.n }}<small>个</small>
+      </div>
+      <div class="d">WebSocket 类（TTS / ASR）一期只登记，不给调用入口</div>
+    </div>
+  </div>
+</section>
+
+{% for capability, rows in grouped %}
+<section>
+  <div class="sec-label" style="margin-bottom:var(--s3)">
+    <b>{{ capability }}</b> · {{ rows|length }} 个
+    <a href="/models?capability={{ capability }}" style="color:var(--ink-3);text-decoration:none">只看这类 →</a>
+  </div>
+  <div class="tablewrap">
+    <table class="data" id="model-table">
+      <thead>
+        <tr>
+          <th>模型</th><th>供应商</th><th>发送方式</th><th class="num">参数</th>
+          <th>计费</th><th>核对</th><th>状态</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in rows %}
+        <tr class="{% if not m.enabled %}rowdim{% endif %}">
+          <td>
+            <a href="/models/{{ m.id }}">{{ m.name }}</a>
+            <div class="id">{{ m.key }}{% if m.notes %} · {{ m.notes[:42] }}{{ '…' if m.notes|length > 42 }}{% endif %}</div>
+          </td>
+          <td class="tight"><code class="mono">{{ m.provider }}</code></td>
+          <td class="tight">
+            {{ chip(m.method ~ ' ' ~ m.mode) }}
+            {% if m.transport != 'http' %}{{ chip(m.transport, 'bill') }}{% endif %}
+          </td>
+          <td class="num">{{ m.fields|length }}</td>
+          <td class="tight">
+            {% set unit = m.pricing_obj.unit if m.pricing_obj else 'free' %}
+            {% if unit and unit != 'free' %}{{ chip(unit, 'bill') }}{% else %}{{ chip('免费', 'ok') }}{% endif %}
+          </td>
+          <td class="tight">{% if m.verified %}{{ chip('已核对', 'ok') }}{% else %}{{ chip('待核对', 'bill') }}{% endif %}</td>
+          <td class="tight">{% if m.enabled %}{{ chip('启用', 'ok') }}{% else %}{{ chip('停用', 'danger') }}{% endif %}</td>
+          <td class="tight"><a class="btn ghost" href="/models/{{ m.id }}">参数</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endfor %}
+
+{% if not grouped %}
+{{ empty('没有匹配的模型', '试试清空筛选，或从目录补齐新增。若目录也是空的，说明 seed 没跑。', '/models', '清空筛选') }}
+{% endif %}
+{% endblock %}

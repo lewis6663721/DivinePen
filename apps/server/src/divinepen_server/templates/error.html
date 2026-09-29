@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="page-head">
+  <h1>{{ title }}</h1>
+  <p>页面没能完成这次请求。下面是后端给出的原始说明。</p>
+</div>
+<section>
+  <div class="alert danger">
+    <b>详情</b>
+    <div><code class="mono">{{ detail }}</code></div>
+  </div>
+</section>
+<section>
+  <div class="toolbar">
+    <a class="btn" href="/">回到总览</a>
+    <a class="btn ghost" href="/healthz">看健康检查</a>
+  </div>
+</section>
+{% endblock %}

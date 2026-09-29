@@ -257,7 +257,9 @@ class Store:
     async def executemany(self, sql: str, rows: Iterable[Sequence[Any]]) -> int:  # pragma: no cover
         raise NotImplementedError
 
-    async def query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:  # pragma: no cover
+    async def query(
+        self, sql: str, params: Sequence[Any] = ()
+    ) -> list[dict[str, Any]]:  # pragma: no cover
         raise NotImplementedError
 
     async def query_one(self, sql: str, params: Sequence[Any] = ()) -> dict[str, Any] | None:
@@ -279,7 +281,9 @@ class Store:
         marks = ", ".join(["?"] * len(columns))
         if self.dialect == "mysql":
             sets = ", ".join(f"{_q(c)} = VALUES({_q(c)})" for c in update_cols)
-            sql = f"INSERT INTO {table} ({cols_sql}) VALUES ({marks}) ON DUPLICATE KEY UPDATE {sets}"
+            sql = (
+                f"INSERT INTO {table} ({cols_sql}) VALUES ({marks}) ON DUPLICATE KEY UPDATE {sets}"
+            )
         else:
             conflict = ", ".join(_q(c) for c in keys)
             sets = ", ".join(f"{_q(c)} = excluded.{_q(c)}" for c in update_cols)

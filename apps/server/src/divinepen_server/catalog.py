@@ -794,7 +794,7 @@ def _models() -> list[ModelSpec]:
                 label="对话",
                 fields=[
                     _f(
-                        "input.messages",
+                        "messages",
                         "消息数组",
                         FieldType.JSON,
                         required=True,
@@ -803,7 +803,7 @@ def _models() -> list[ModelSpec]:
                         placeholder='[{"role":"user","content":"用一句话介绍你自己"}]',
                     ),
                     _f(
-                        "parameters.temperature",
+                        "temperature",
                         "温度",
                         FieldType.FLOAT,
                         default=0.7,
@@ -813,7 +813,7 @@ def _models() -> list[ModelSpec]:
                         doc="采样温度，越大越发散。默认 0.7。",
                     ),
                     _f(
-                        "parameters.top_p",
+                        "top_p",
                         "核采样",
                         FieldType.FLOAT,
                         default=0.8,
@@ -824,7 +824,7 @@ def _models() -> list[ModelSpec]:
                         advanced=True,
                     ),
                     _f(
-                        "parameters.max_tokens",
+                        "max_tokens",
                         "最大输出 token",
                         FieldType.INT,
                         min=1,
@@ -832,7 +832,7 @@ def _models() -> list[ModelSpec]:
                         doc="限制本次生成的最大 token 数。**影响费用**。",
                     ),
                     _f(
-                        "parameters.response_format",
+                        "response_format",
                         "输出格式",
                         FieldType.ENUM,
                         default="text",
@@ -840,7 +840,7 @@ def _models() -> list[ModelSpec]:
                         doc="json_object 时模型只输出 JSON 对象，适合结构化抽取。",
                     ),
                     _f(
-                        "parameters.enable_thinking",
+                        "enable_thinking",
                         "思考模式",
                         FieldType.BOOL,
                         doc="混合思考模型专用：开启后先输出思考过程再给答案。",

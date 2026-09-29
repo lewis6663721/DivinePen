@@ -100,6 +100,13 @@ class DbModelCatalog:
 
     def __init__(self, repo: Repo) -> None:
         self.repo = repo
+        self._base_urls: dict[str, str] | None = None
+
+    async def _base_url(self, provider_code: str) -> str:
+        if self._base_urls is None:
+            rows = await self.repo.providers()
+            self._base_urls = {row["code"]: row["base_url"] for row in rows}
+        return self._base_urls.get(provider_code, "")
 
     async def _spec(self, row: dict[str, Any]) -> ModelSpec:
         return ModelSpec(
@@ -107,6 +114,7 @@ class DbModelCatalog:
             key=row["key"],
             capability=row["capability"],
             name=row["name"],
+            base_url=await self._base_url(row["provider"]),
             enabled=bool(row["enabled"]),
             api={
                 "method": row["method"],

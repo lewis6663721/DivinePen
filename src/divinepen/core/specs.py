@@ -137,6 +137,27 @@ class ParamsSchema(BaseModel):
             raise ValueError(f"缺少必填参数：{', '.join(missing)}")
         return out
 
+    def build_body(self, values: dict[str, Any]) -> dict[str, Any]:
+        """扁平值（点号路径）→ 接口文档要求的嵌套请求体。
+
+        **dry-run 与真实调用共用这一份**：页面上看到的 body 就是发出去的 body。
+        顺序按 schema 声明顺序，便于和文档逐行对照。
+        """
+        body: dict[str, Any] = {}
+        for field in self.fields():
+            if field.key not in values or values[field.key] is None:
+                continue
+            node = body
+            parts = field.key.split(".")
+            for part in parts[:-1]:
+                nxt = node.get(part)
+                if not isinstance(nxt, dict):
+                    nxt = {}
+                    node[part] = nxt
+                node = nxt
+            node[parts[-1]] = values[field.key]
+        return body
+
     # ── 从 Pydantic 派生（唯一真相源）────────────────────────────
 
     @classmethod
@@ -385,6 +406,8 @@ class ModelSpec(BaseModel):
     capability: str = Field(description="功能分类，如 video.t2v")
     name: str = ""
     region: str | None = None
+    #: 供应商 Base URL。由目录/数据库在解析模型时填入，适配器据此拼绝对 URL。
+    base_url: str = ""
     enabled: bool = True
     api: ApiSpec
     params: ParamsSchema = Field(default_factory=ParamsSchema)

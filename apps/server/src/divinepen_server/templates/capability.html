@@ -20,6 +20,23 @@
     {% for r in cap.requires %}{{ chip('需要 ' ~ r) }}{% endfor %}
   </div>
 
+  {% if cap.recipe %}
+  <div class="sec-label" style="margin:var(--s5) 0 var(--s3)"><b>流水线</b> · {{ cap.recipe.name }} —— {{ cap.recipe.steps|length }} 步，顺序即拓扑</div>
+  <div class="stack-v">
+    {% for s in cap.recipe.steps %}
+    <div class="alert {{ 'sig' if loop.first else '' }}">
+      <b>{{ loop.index }} · {{ s.id }}</b>
+      <div>
+        <code class="mono">{{ s.capability }}</code> —— {{ s.description or '（无说明）' }}
+        <div class="hint" style="margin-top:4px">
+          入参：{% for k, v in s.inputs.items() %}<code class="mono">{{ k }}={{ v }}</code>{% if not loop.last %} {% endif %}{% else %}（无）{% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% if missing %}
   <div class="stack-v" style="margin-bottom:var(--s5)">
     {% for m in missing %}<div class="alert danger"><b>就绪检查</b><div>{{ m }}</div></div>{% endfor %}

@@ -1,0 +1,19 @@
+[project]
+name = "divinepen-agent-shortvideo"
+version = "0.1.0"
+description = "短视频包装智能体：裁剪 → 烧字幕 → 挂角标，一条流水线跑完（纯本地，零成本）"
+requires-python = ">=3.12"
+dependencies = ["divinepen"]
+
+[project.entry-points."divinepen.agents"]
+shortvideo = "divinepen_agent_shortvideo:PLUGIN"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/divinepen_agent_shortvideo"]
+
+[tool.uv.sources]
+divinepen = { workspace = true }

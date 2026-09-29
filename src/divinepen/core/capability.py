@@ -22,6 +22,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any, ClassVar
 
+import anyio
 from pydantic import BaseModel, Field, ValidationError
 
 from .artifact import Artifact
@@ -197,6 +198,8 @@ class Capability(ABC):
                 missing.append("缺少 ffmpeg 可执行文件")
             elif req is Requirement.FFPROBE and shutil.which("ffprobe") is None:
                 missing.append("缺少 ffprobe 可执行文件")
+            elif req is Requirement.FFMPEG_SUBTITLES and not await ffmpeg_has_filter("subtitles"):
+                missing.append("当前 ffmpeg 未编译字幕滤镜（libass），字幕烧录不可用")
         if self.manifest.needs_credential:
             provider = self.manifest.model_capability or self.manifest.namespace
             ready = await _credential_ready(ctx, provider)
@@ -276,6 +279,31 @@ class Capability(ABC):
             warnings=list(outcome.warnings) if outcome else [],
             elapsed_ms=int((time.perf_counter() - started) * 1000),
         )
+
+
+_FFMPEG_FILTER_CACHE: dict[str, bool] = {}
+
+
+async def ffmpeg_has_filter(name: str) -> bool:
+    """探测本机 ffmpeg 是否带某个滤镜（进程内缓存）。
+
+    发行版/ Homebrew 的 ffmpeg 经常不带 libass（``subtitles``/``ass``）或
+    freetype（``drawtext``）。缺滤镜不是调用方的错，体检要提前说清楚。
+    """
+    if name in _FFMPEG_FILTER_CACHE:
+        return _FFMPEG_FILTER_CACHE[name]
+    if shutil.which("ffmpeg") is None:
+        _FFMPEG_FILTER_CACHE[name] = False
+        return False
+    completed = await anyio.run_process(["ffmpeg", "-hide_banner", "-filters"], check=False)
+    names: set[str] = set()
+    for line in (completed.stdout or b"").decode("utf-8", "replace").splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and len(parts[0]) <= 3:
+            names.add(parts[1])
+    ok = name in names
+    _FFMPEG_FILTER_CACHE[name] = ok
+    return ok
 
 
 async def _credential_ready(ctx: RunContext, provider: str) -> bool | None:

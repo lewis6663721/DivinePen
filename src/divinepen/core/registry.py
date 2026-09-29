@@ -141,11 +141,20 @@ def _validate(cap: Capability, source: str) -> CapabilityManifest:
 
 
 def build_default_registry(*, discover: bool = True) -> CapabilityRegistry:
-    """构建包含内置能力（+ 已安装插件）的注册表。"""
+    """构建包含内置能力（+ 已安装插件）的注册表。
+
+    两级发现：``divinepen.capabilities`` 组直接给能力列表；
+    ``divinepen.agents`` 组给智能体插件，由插件自己把能力注册进来
+    （插件可能一次注册多个能力，也可能注册流水线能力）。
+    """
     reg = CapabilityRegistry(name="default")
     from ..capabilities import builtin_capabilities
 
     reg.register_many(builtin_capabilities(), source="builtin")
     if discover:
         reg.discover()
+        from ..agents import discover_plugins
+
+        for plugin in discover_plugins():
+            plugin.register(reg)
     return reg

@@ -403,7 +403,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         values = _form_values(form, cap.form_schema())
         result: dict[str, Any]
         try:
-            run = await cap.invoke(values, instance.context(dry_run=True))
+            run = await cap.invoke(
+                values, instance.context(dry_run=True, extra={"registry": instance.registry})
+            )
             result = {
                 "kind": "ok",
                 "status": run.status.value,

@@ -32,6 +32,8 @@ class Requirement(StrEnum):
     NETWORK = "network"
     FFMPEG = "ffmpeg"
     FFPROBE = "ffprobe"
+    #: ffmpeg 是否编译了 libass（subtitles/ass 滤镜）。发行版 ffmpeg 经常没有。
+    FFMPEG_SUBTITLES = "ffmpeg_subtitles"
     GPU = "gpu"
     OSS = "oss"
     REDIS = "redis"

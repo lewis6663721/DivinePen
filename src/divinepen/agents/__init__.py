@@ -68,7 +68,30 @@ class AgentPlugin(ABC):
         for req in self.manifest.requires:
             if req in {Requirement.FFMPEG, Requirement.FFPROBE} and shutil.which(req.value) is None:
                 missing.append(f"缺少 {req.value} 可执行文件")
+            elif req is Requirement.FFMPEG_SUBTITLES and not _ffmpeg_has_subtitles():
+                missing.append("ffmpeg 缺 subtitles 滤镜（未编译 libass）")
         return missing
+
+
+def _ffmpeg_has_subtitles() -> bool:
+    """同步探针（插件体检是同步方法）。结果缓存，只跑一次 ffmpeg。"""
+    import shutil
+    import subprocess
+
+    cached = globals().get("_SUBTITLES_CACHE")
+    if cached is not None:
+        return cached
+    if shutil.which("ffmpeg") is None:
+        globals()["_SUBTITLES_CACHE"] = False
+        return False
+    out = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True, check=False
+    ).stdout
+    ok = any(
+        line.split()[1:2] == ["subtitles"] for line in out.splitlines() if len(line.split()) >= 2
+    )
+    globals()["_SUBTITLES_CACHE"] = ok
+    return ok
 
 
 def discover_plugins() -> list[AgentPlugin]:

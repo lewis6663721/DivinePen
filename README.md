@@ -176,7 +176,7 @@ make smoke        # 端到端冒烟
 | **P0** | 仓库骨架 + 四层契约 + 冒烟通过 | ✅ |
 | **P1** | 服务端骨架 + 模型管理 + 阿里系目录入库 + 参数表单 | 🚧 控制台已跑通（SQLite 先行）；MySQL/Tortoise 待换 |
 | **P2** | 阿里系能力接入（LLM / 图像 / 视频 / 音频）+ ffmpeg 剪辑套件 | ⬜ |
-| **P3** | 编排层 + 可插拔智能体 + 首个业务插件 | ⬜ |
+| **P3** | 编排层 + 可插拔智能体 + 首个业务插件 | ✅ 编排层 + `divinepen-agent-shortvideo` 已装已发现 |
 
 ---
 
@@ -187,3 +187,5 @@ make smoke        # 端到端冒烟
 - `llm.md` 里没核到 `qwen3.8-max` 这个写法，连通性测试默认模型暂用 `qwen-plus`（配置项可改）。
 - `语音合成qwen_tts.md` 缺声音复刻接口参考，`audio.tts.clone` 暂无法建模。
 - TTS / ASR 走 WebSocket，一期只登记不接入，页面上标"未接入"。
+- 本机 ffmpeg 未编译 libass（无 `subtitles` 滤镜）：`media.burn_subtitles` 预演可看、真跑会被体检拦下；
+  换带 libass 的 ffmpeg 即恢复。体检项为 `Requirement.FFMPEG_SUBTITLES`。

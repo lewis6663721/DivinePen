@@ -145,6 +145,21 @@ async def lifespan(app: FastAPI):
         await instance.aclose()
 
 
+def asset(name: str) -> str:
+    """静态资源 URL 带文件 mtime 版本号。
+
+    StaticFiles 不发 Cache-Control，浏览器会按 Last-Modified 做**启发式缓存** ——
+    改了 CSS 用户却还看旧的。带上 mtime 后，文件一变 URL 就变，缓存自然失效；
+    文件没变时 URL 不变，照样吃缓存。
+    """
+    path = STATIC_DIR / name
+    try:
+        version = int(path.stat().st_mtime)
+    except OSError:
+        version = 0
+    return f"/static/{name}?v={version}"
+
+
 def control_of(field: Any) -> str:
     """字段 → 页面控件。
 
@@ -187,6 +202,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.filters["bytes"] = human_bytes
     templates.env.filters["money"] = money
     templates.env.globals["control_of"] = control_of
+    templates.env.globals["asset"] = asset
 
     # ── 公共 helpers ───────────────────────────────────────────
 

@@ -314,6 +314,8 @@ class TaskStatus(StrEnum):
 
     PENDING = "PENDING"
     RUNNING = "RUNNING"
+    #: 可介入工作流停在人工闸口，等 resume 带参数回来
+    AWAITING_INPUT = "AWAITING_INPUT"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     CANCELED = "CANCELED"
@@ -325,7 +327,7 @@ class TaskStatus(StrEnum):
 
     @property
     def is_active(self) -> bool:
-        return self in {TaskStatus.PENDING, TaskStatus.RUNNING}
+        return self in {TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.AWAITING_INPUT}
 
 
 class ArtifactPick(BaseModel):

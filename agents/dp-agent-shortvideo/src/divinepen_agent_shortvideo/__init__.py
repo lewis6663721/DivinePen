@@ -15,7 +15,13 @@ from pydantic import BaseModel, Field
 from divinepen.agents import AgentManifest, AgentPlugin
 from divinepen.core.artifact import Artifact
 from divinepen.core.capability import Capability
-from divinepen.core.manifest import CapabilityManifest, Category, CostModel, Requirement
+from divinepen.core.manifest import (
+    AgentMode,
+    CapabilityManifest,
+    Category,
+    CostModel,
+    Requirement,
+)
 from divinepen.core.registry import CapabilityRegistry
 from divinepen.pipeline import PipelineCapability, PipelineOutput, Recipe, StepSpec
 
@@ -129,9 +135,75 @@ class ShortVideoPackage(PipelineCapability):
         description="裁剪 → 烧字幕 → 挂角标 一条流水线。来自插件 divinepen-agent-shortvideo。",
         requires=[Requirement.FFMPEG, Requirement.FFPROBE],
         cost=CostModel(unit="free", notes="四步全本地 ffmpeg，不产生任何费用"),
+        agent_mode=AgentMode.PIPELINE,
         tags=["智能体", "流水线", "ffmpeg"],
     )
     recipe = RECIPE
+    Input = PackageInput
+    Output = PipelineOutput
+
+
+REVIEWED_RECIPE = Recipe(
+    id="shortvideo.package_reviewed",
+    name="短视频包装（可介入）",
+    description="与固定流程同一条链，但在烧字幕前停一道人工闸口：确认裁剪结果再继续。",
+    steps=[
+        StepSpec(
+            id="probe",
+            capability="media.probe",
+            inputs={"source": "$params.source"},
+            description="先探元信息",
+        ),
+        StepSpec(
+            id="clip",
+            capability="media.trim",
+            inputs={
+                "source": "$params.source",
+                "start": "$params.start",
+                "duration": "$params.duration",
+                "reencode": True,
+            },
+            description="裁出候选片段",
+        ),
+        StepSpec(
+            id="titled",
+            capability="media.burn_subtitles",
+            gate=True,
+            gate_prompt="看一下裁剪结果：区间对不对？字幕字号要不要调？确认或改参后继续。",
+            inputs={
+                "source": "$clip.uri",
+                "subtitle": "$params.subtitle",
+                "font_size": "$params.font_size",
+            },
+            description="人工确认后烧字幕",
+        ),
+        StepSpec(
+            id="packaged",
+            capability="media.pip",
+            inputs={
+                "base": "$titled.uri",
+                "overlay": "$params.logo",
+                "position": "$params.position",
+                "width": "$params.logo_width",
+            },
+            description="挂角标出成品",
+        ),
+    ],
+)
+
+
+class ShortVideoPackageReviewed(PipelineCapability):
+    manifest = CapabilityManifest(
+        id="media.shortvideo_reviewed",
+        name="短视频包装（可介入）",
+        category=Category.MEDIA,
+        description="workflow 模式：烧字幕前停一道人工闸口，可确认也可改参再继续。",
+        requires=[Requirement.FFMPEG, Requirement.FFPROBE],
+        cost=CostModel(unit="free", notes="四步全本地 ffmpeg，不产生任何费用"),
+        agent_mode=AgentMode.INTERACTIVE,
+        tags=["智能体", "可介入", "ffmpeg"],
+    )
+    recipe = REVIEWED_RECIPE
     Input = PackageInput
     Output = PipelineOutput
 
@@ -142,6 +214,7 @@ class ShortVideoAgent(AgentPlugin):
         name="短视频包装智能体",
         version=__version__,
         description="把原始素材包装成可发布的短视频：取精华、烧字幕、挂角标。",
+        mode=AgentMode.PIPELINE,
         capabilities=["media.probe", "media.trim", "media.burn_subtitles", "media.pip"],
         requires=[Requirement.FFMPEG, Requirement.FFPROBE, Requirement.FFMPEG_SUBTITLES],
         author="DivinePen",
@@ -149,11 +222,20 @@ class ShortVideoAgent(AgentPlugin):
 
     def register(self, registry: CapabilityRegistry) -> None:
         registry.register(ShortVideoPackage(), source=f"agent:{self.manifest.id}")
+        registry.register(ShortVideoPackageReviewed(), source=f"agent:{self.manifest.id}")
 
     def capabilities(self) -> list[Capability]:
-        return [ShortVideoPackage()]
+        return [ShortVideoPackage(), ShortVideoPackageReviewed()]
 
 
 PLUGIN = ShortVideoAgent()
 
-__all__ = ["PLUGIN", "RECIPE", "ShortVideoAgent", "ShortVideoPackage", "__version__"]
+__all__ = [
+    "PLUGIN",
+    "RECIPE",
+    "REVIEWED_RECIPE",
+    "ShortVideoAgent",
+    "ShortVideoPackage",
+    "ShortVideoPackageReviewed",
+    "__version__",
+]

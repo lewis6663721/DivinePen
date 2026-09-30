@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from .capability import Capability
 from .errors import CapabilityError, CapabilityNotFound
-from .manifest import CapabilityManifest, Category
+from .manifest import CapabilityKind, CapabilityManifest, Category
 
 #: 外部插件声明的入口点组名
 ENTRY_POINT_GROUP = "divinepen.capabilities"
@@ -30,6 +30,7 @@ class CapabilityRegistry:
         self.name = name
         self._caps: dict[str, Capability] = {}
         self._sources: dict[str, str] = {}
+        self._kinds: dict[str, CapabilityKind] = {}
 
     # ── 注册 ──────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ class CapabilityRegistry:
     ) -> Capability:
         instance = cap() if isinstance(cap, type) else cap
         manifest = _validate(instance, source)
+        self._kinds[manifest.id] = _kind_of(instance, source)
         if manifest.id in self._caps and not replace:
             raise CapabilityError(
                 f"能力 id 重复注册：{manifest.id}",
@@ -55,7 +57,21 @@ class CapabilityRegistry:
 
     def unregister(self, capability_id: str) -> bool:
         self._sources.pop(capability_id, None)
+        self._kinds.pop(capability_id, None)
         return self._caps.pop(capability_id, None) is not None
+
+    def kind_of(self, capability_id: str) -> CapabilityKind:
+        return self._kinds.get(capability_id, CapabilityKind.TOOLKIT)
+
+    def by_kind(self) -> dict[str, list[dict[str, Any]]]:
+        """能力目录按三大分区组织：AI 工具包 / 剪辑 / 智能体。"""
+        out: dict[str, list[dict[str, Any]]] = {k.value: [] for k in CapabilityKind}
+        for cap in sorted(self._caps.values(), key=lambda c: c.manifest.id):
+            info = cap.info()
+            info["kind"] = self._kinds[cap.manifest.id].value
+            info["source"] = self._sources[cap.manifest.id]
+            out[self._kinds[cap.manifest.id].value].append(info)
+        return out
 
     # ── 发现 ──────────────────────────────────────────────────────
 
@@ -108,8 +124,15 @@ class CapabilityRegistry:
         return [c for c in self._caps.values() if c.manifest.model_capability == model_capability]
 
     def catalog(self) -> list[dict[str, Any]]:
-        """给页面用的能力目录（含表单 schema）。"""
-        return [c.info() for c in sorted(self._caps.values(), key=lambda c: c.manifest.id)]
+        """给页面用的能力目录（含表单 schema、分区、来源）。"""
+        return [
+            {
+                **c.info(),
+                "kind": self._kinds[c.manifest.id].value,
+                "source": self._sources[c.manifest.id],
+            }
+            for c in sorted(self._caps.values(), key=lambda c: c.manifest.id)
+        ]
 
     # ── 容器协议 ──────────────────────────────────────────────────
 
@@ -121,6 +144,18 @@ class CapabilityRegistry:
 
     def __len__(self) -> int:
         return len(self._caps)
+
+
+def _kind_of(cap: Capability, source: str) -> CapabilityKind:
+    """分区判定：插件来的都是智能体；绑模型的是 AI 工具包；其余本地实现归剪辑。"""
+    manifest = cap.manifest
+    if source.startswith("agent:") or manifest.agent_mode is not None:
+        return CapabilityKind.AGENT
+    if manifest.model_capability:
+        return CapabilityKind.TOOLKIT
+    if manifest.category is Category.MEDIA:
+        return CapabilityKind.EDITING
+    return CapabilityKind.TOOLKIT
 
 
 def _validate(cap: Capability, source: str) -> CapabilityManifest:

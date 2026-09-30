@@ -1,45 +1,78 @@
 {% extends "base.html" %}
 {% from "_macros.html" import chip, empty %}
 
+{% macro cap_card(c) -%}
+<a class="cap" href="/capabilities/{{ c.id }}">
+  <div class="top">
+    <span class="id">{{ c.id }}</span>
+    <span class="ver">v{{ c.version }}</span>
+  </div>
+  <h3>{{ c.name }}</h3>
+  <p>{{ c.description or '（未写描述）' }}</p>
+  <div class="foot">
+    {{ chip(c.category, 'sig') }}
+    {% if c.model_capability %}{{ chip('模型 · ' ~ c.model_capability) }}{% endif %}
+    {% if c.cost and c.cost.unit and c.cost.unit != 'free' %}{{ chip('计费 · ' ~ c.cost.unit, 'bill') }}{% else %}{{ chip('免费', 'ok') }}{% endif %}
+    {% if c.async_task %}{{ chip('异步') }}{% endif %}
+    {% if c.source and c.source != 'builtin' %}{{ chip('插件 · ' ~ c.source, 'sig') }}{% endif %}
+  </div>
+  <div class="foot" style="margin-top:6px">
+    {% if c.missing %}
+      {% for m in c.missing %}{{ chip('缺：' ~ m, 'danger') }}{% endfor %}
+    {% else %}{{ chip('就绪', 'ok') }}{% endif %}
+  </div>
+</a>
+{%- endmacro %}
+
 {% block body %}
 <div class="page-head">
   <h1>能力目录</h1>
-  <p>这里列的是<b>能力</b>（干什么），不是模型（谁来干）。调用方只认能力 id，
-     例如 <code class="mono">media.burn_subtitles</code>；<b>用哪个模型由 Router 按策略决定</b>。
-     插件装上后，其能力会自动出现在这一页。</p>
+  <p>目录按<b>靠什么干</b>分成三区，而不是按功能：<b>AI 工具包</b>必须调模型 API；
+     <b>剪辑</b>是硬代码（主要是 ffmpeg），零成本；<b>智能体</b>是插件装上来的业务能力，
+     再按运行模式分 react / pipeline / interactive 三种。</p>
 </div>
 
+{% set kinds = [
+  ("toolkit", "AI 工具包", "必须调用大模型能力才能完成，一般对接供应商 API。参数 schema 来自接口文档，dry-run 免费、真实调用走三道闸。"),
+  ("editing", "剪辑", "硬代码实现，大部分基于 ffmpeg：拼接、裁剪、画中画、字幕烧录、音轨分离。本地执行、零成本、可真实跑。"),
+  ("agent", "智能体", "以插件形式安装的业务能力。react=基于 agentscope 的推理循环；pipeline=流程写死、后台异步跑完返回结果；interactive=workflow 但每步可人工介入。")
+] %}
+
+{% for key, label, desc in kinds %}
 <section>
-  <div class="caps">
-    {% for c in catalog %}
-    <a class="cap" href="/capabilities/{{ c.id }}">
-      <div class="top">
-        <span class="id">{{ c.id }}</span>
-        <span class="ver">v{{ c.version }}</span>
+  <div class="sec-label" style="margin-bottom:var(--s4)">
+    <b>{{ loop.index }} · {{ label }}</b> · {{ by_kind[key]|length }} 个 —— {{ desc }}
+  </div>
+
+  {% if key == 'agent' %}
+    {% for mode, mlabel in [
+        ('pipeline', 'pipeline · 固定流程：只给输入，后台异步执行，完事返回最终结果'),
+        ('interactive', 'interactive · 可介入工作流：每一步之间允许人工确认 / 改参（漫剧制作这类）'),
+        ('react', 'react · 推理型：基于 agentscope 的 ReAct 循环（LLM 推理 / 记忆 / 上下文管理）')
+    ] %}
+      {% set items = by_kind[key] | selectattr('agent_mode', 'equalto', mode) | list %}
+      {% if items %}
+      <div class="sec-label" style="margin:0 0 var(--s3);text-transform:none;letter-spacing:.03em">
+        <b style="color:var(--signal)">{{ mlabel }}</b>
       </div>
-      <h3>{{ c.name }}</h3>
-      <p>{{ c.description or '（未写描述）' }}</p>
-      <div class="foot">
-        {{ chip(c.category, 'sig') }}
-        {% if c.model_capability %}{{ chip('模型 · ' ~ c.model_capability, '') }}{% endif %}
-        {% if c.cost and c.cost.unit and c.cost.unit != 'free' %}{{ chip('计费 · ' ~ c.cost.unit, 'bill') }}{% else %}{{ chip('免费', 'ok') }}{% endif %}
-        {% if c.async_task %}{{ chip('异步') }}{% endif %}
-        {% if c.status != 'stable' %}{{ chip(c.status, 'bill') }}{% endif %}
-        {% if c.source and c.source != 'builtin' %}{{ chip('插件 · ' ~ c.source, 'sig') }}{% endif %}
-      </div>
-      <div class="foot" style="margin-top:6px">
-        {% if c.missing %}
-          {% for m in c.missing %}{{ chip('缺：' ~ m, 'danger') }}{% endfor %}
-        {% else %}{{ chip('就绪', 'ok') }}{% endif %}
-      </div>
-      {% if c.requires %}
-      <div class="foot" style="margin-top:6px">
-        {% for r in c.requires %}{{ chip('需要 ' ~ r) }}{% endfor %}
+      <div class="caps" style="margin-bottom:var(--s5)">
+        {% for c in items %}{{ cap_card(c) }}{% endfor %}
       </div>
       {% endif %}
-    </a>
     {% endfor %}
-  </div>
-  {% if not catalog %}{{ empty('注册表是空的', '检查 divinepen.capabilities 是否可导入，或插件是否安装失败。') }}{% endif %}
+    {% set nomode = by_kind[key] | selectattr('agent_mode', 'equalto', None) | list %}
+    {% if nomode %}
+    <div class="caps">{% for c in nomode %}{{ cap_card(c) }}{% endfor %}</div>
+    {% endif %}
+    {% if not by_kind[key] %}
+      {{ empty('还没有安装任何智能体', '智能体是独立发行的插件：pip install 一个 divinepen-agent-* 包，重启服务即被发现。react 模式需要额外安装 agentscope。') }}
+    {% endif %}
+  {% else %}
+    <div class="caps">
+      {% for c in by_kind[key] %}{{ cap_card(c) }}{% endfor %}
+    </div>
+    {% if not by_kind[key] %}{{ empty('这一区还是空的', '暂无该类能力。') }}{% endif %}
+  {% endif %}
 </section>
+{% endfor %}
 {% endblock %}

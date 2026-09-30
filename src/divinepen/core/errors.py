@@ -51,6 +51,16 @@ class CapabilityNotFound(CapabilityError):
     code = "capability_not_found"
 
 
+class PipelinePaused(CapabilityError):
+    """可介入工作流停在人工闸口。
+
+    不是失败：``detail`` 里带着 ``step_id`` / ``outputs`` / ``start_index`` /
+    ``gate_prompt``，服务端据此把任务置为 AWAITING_INPUT，等 resume 带参数回来续跑。
+    """
+
+    code = "pipeline_paused"
+
+
 class CapabilityInputError(CapabilityError):
     """输入未通过 Pydantic 校验。``detail['errors']`` 带字段级错误。"""
 

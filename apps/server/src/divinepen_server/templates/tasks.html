@@ -4,8 +4,9 @@
 {% block body %}
 <div class="page-head">
   <h1>任务中心</h1>
-  <p>异步视频任务的账本。<b>提交那一刻远端 task_id 就落库</b> —— 服务重启、进程崩了都不丢，
-     因为"钱已经花了但产物不知道在哪"是最不能接受的状态。</p>
+  <p>异步执行的账本。<b>提交那一刻远端 task_id 就落库</b>；pipeline 模式一路跑完写结果，
+     interactive 模式停在人工闸口时任务转 <code class="mono">AWAITING_INPUT</code>，
+     带着你的确认 resume 续跑 —— 暂停态（已产出的中间产物、停在哪一步）都存在任务里，重启不丢。</p>
 </div>
 
 <section>
@@ -22,34 +23,43 @@
   <div class="tablewrap">
     <table class="data">
       <thead>
-        <tr><th>任务</th><th>能力 / 模型</th><th>状态</th><th class="num">进度</th><th>远端 task_id</th><th>创建</th><th>更新</th></tr>
+        <tr><th>任务</th><th>能力 / 模型</th><th>状态</th><th class="num">进度</th><th>产物 / 闸口</th><th>创建</th></tr>
       </thead>
       <tbody>
         {% for t in tasks %}
         <tr>
           <td><a href="/tasks/{{ t.id }}"><code class="mono">{{ t.id }}</code></a>
-            <div class="filmstrip" style="max-width:180px">
+            <div class="filmstrip" style="max-width:160px">
               {% for i in range(10) %}
-              <i class="{% if t.status == 'SUCCEEDED' or (t.status == 'RUNNING' and i * 10 < t.progress) %}done{% elif t.status == 'RUNNING' and i * 10 == t.progress %}now{% endif %}"></i>
+              <i class="{% if t.status == 'SUCCEEDED' or (t.status in ('RUNNING','AWAITING_INPUT') and i * 10 < t.progress) %}done{% endif %}"></i>
               {% endfor %}
             </div>
           </td>
           <td class="tight">
             <code class="mono">{{ t.capability_id }}</code>
-            <div class="id">{{ t.model }}</div>
+            <div class="id">{{ t.model or '—' }}</div>
           </td>
           <td class="tight">{{ state(t.status) }}</td>
           <td class="num">{{ t.progress }}%</td>
-          <td class="tight"><code class="mono">{{ t.remote_task_id or '—' }}</code></td>
+          <td>
+            {% set arts = (t.result_obj or {}).artifacts %}
+            {% set paused = (t.result_obj or {}).paused %}
+            {% if arts %}
+              {% for u in arts %}<div class="id">{{ u.split('/')|last }}</div>{% endfor %}
+            {% elif paused %}
+              {{ chip('等人工：' ~ paused.step_id, 'bill') }}
+            {% elif t.remote_task_id %}
+              <code class="mono">{{ t.remote_task_id }}</code>
+            {% else %}—{% endif %}
+          </td>
           <td class="id">{{ t.created_at }}</td>
-          <td class="id">{{ t.updated_at }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% else %}
-  {{ empty('还没有任务', '任务中心会在第一次异步视频调用之后开始有内容。现在模型目录已经就位，但还没发生过真实调用 —— 这也是为什么这里是空的。', '/models', '去看模型') }}
+  {{ empty('还没有任务', '在能力页点「后台执行」就会在这里出现一条任务：pipeline 一路跑完，interactive 会在闸口停下来等你。', '/capabilities', '去能力目录') }}
   {% endif %}
 </section>
 {% endblock %}

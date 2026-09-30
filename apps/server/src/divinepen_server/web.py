@@ -37,6 +37,7 @@ from divinepen.core.specs import TaskStatus
 
 from . import runtime as rt
 from .catalog import category_label, category_sort
+from .db import dumps
 from .settings import Settings, get_settings
 from .store import seed, verify_password
 
@@ -130,6 +131,8 @@ def money(amount: Any, currency: str = "CNY") -> str:
 
 #: 进程级共享状态：lifespan 里建，路由里读。测试可在同进程内替换。
 state: dict[str, Any] = {}
+#: 后台执行中的 asyncio 任务引用集合：不持有引用会被 GC 中途回收。
+_BG: set[Any] = set()
 #: create_app 时把本次配置存进来，供 lifespan 读取（lifespan 不能带额外参数）。
 settings_ref: dict[str, Settings] = {}
 
@@ -362,16 +365,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/capabilities", response_class=HTMLResponse)
     async def capabilities(request: Request):
         instance = get_app()
-        catalog = instance.registry.catalog()
-        for item in catalog:
-            cap = instance.registry.get(item["id"])
-            item["missing"] = await cap.check_ready(instance.context())
-            item["source"] = instance.registry.source_of(item["id"])
+        by_kind = instance.registry.by_kind()
+        for group in by_kind.values():
+            for item in group:
+                cap = instance.registry.get(item["id"])
+                item["missing"] = await cap.check_ready(instance.context())
         return render(
             request,
             "capabilities.html",
             title="能力目录",
-            catalog=catalog,
+            by_kind=by_kind,
             counts=await nav_counts(instance),
         )
 
@@ -823,6 +826,57 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             counts=await nav_counts(instance),
         )
 
+    @app.post("/capabilities/{capability_id}/run")
+    async def capability_run(request: Request, capability_id: str, confirm: str = Form("0")):
+        instance = get_app()
+        if not instance.registry.has(capability_id):
+            return render(request, "error.html", status_code=404, title="找不到能力",
+                          detail=f"未注册的能力：{capability_id}")
+        cap = instance.registry.get(capability_id)
+        billed = not cap.manifest.cost.is_free
+        if billed and confirm != "1":
+            return RedirectResponse(
+                flash_url(f"/capabilities/{capability_id}",
+                          "该能力会产生费用，需勾选确认后再提交", "bill"), 303)
+        form = await request.form()
+        values = {k: _coerce_json(v) for k, v in form.items() if not k.startswith("_") and v != ""}
+        task_id = await instance.repo.create_task(
+            {"capability_id": capability_id, "provider": cap.manifest.model_capability or "",
+             "model": "", "status": "PENDING", "payload": values,
+             "user_id": getattr(request.state, "user", None) and request.state.user["id"]}
+        )
+        _spawn(_run_background(instance, task_id, capability_id, values, billed_allowed=confirm == "1"))
+        return RedirectResponse(flash_url(f"/tasks/{task_id}", "已提交后台执行，去任务中心看进度"), 303)
+
+    @app.post("/tasks/{task_id}/resume")
+    async def task_resume(request: Request, task_id: str):
+        instance = get_app()
+        row = await instance.repo.task(task_id)
+        if not row or row["status"] != "AWAITING_INPUT":
+            return RedirectResponse(flash_url("/tasks", "该任务不在等待人工介入的状态", "danger"), 303)
+        paused = (row.get("result_obj") or {}).get("paused") or {}
+        form = await request.form()
+        raw = str(form.get("approvals") or "{}").strip()
+        try:
+            approvals = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            return RedirectResponse(flash_url(f"/tasks/{task_id}", "介入参数不是合法 JSON", "danger"), 303)
+        if not isinstance(approvals, dict):
+            approvals = {paused.get("step_id", ""): approvals}
+        step_id = paused.get("step_id")
+        if step_id and step_id not in approvals:
+            approvals = {**approvals, step_id: {}}
+        resume = {
+            "outputs": paused.get("outputs") or {},
+            "steps": paused.get("steps") or [],
+            "start_index": paused.get("start_index") or 0,
+        }
+        await instance.repo.update_task(task_id, status="PENDING", result=dumps({}))
+        _spawn(_run_background(instance, task_id, row["capability_id"],
+                               row.get("payload_obj") or {}, billed_allowed=False,
+                               resume=resume, approvals=approvals))
+        return RedirectResponse(flash_url(f"/tasks/{task_id}", "已带着你的确认继续执行"), 303)
+
     # ── 目录重新导入 ───────────────────────────────────────────
 
     @app.post("/catalog/reseed")
@@ -860,6 +914,123 @@ def _form_values(form: Any, schema: Any) -> dict[str, Any]:
         if field.type.value == "bool" and field.key not in values:
             values[field.key] = False
     return values
+
+
+def _log_bg_error(task: Any) -> None:
+    import logging
+
+    exc = task.exception() if not task.cancelled() else None
+    if exc:
+        logging.getLogger("divinepen.server").error("后台任务异常: %r", exc)
+
+
+# ── 异步后台执行（pipeline / interactive 模式的运行方式）─────
+
+async def _run_background(
+    instance: rt.App,
+    task_id: str,
+    capability_id: str,
+    values: dict[str, Any],
+    *,
+    billed_allowed: bool,
+    resume: dict[str, Any] | None = None,
+    approvals: dict[str, Any] | None = None,
+) -> None:
+    """后台跑一个能力，把生命周期写进 dp_task。
+
+    pipeline 模式：一路跑完，结果落 task.result；
+    interactive 模式：停在闸口时抛 PipelinePaused → 任务转 AWAITING_INPUT，
+    暂停态（outputs / start_index）存在 task.result 里，等 resume 续跑。
+    """
+    from divinepen.core.errors import DivinePenError
+
+    cap = instance.registry.get(capability_id)
+    await instance.repo.update_task(task_id, status="RUNNING")
+    ctx = instance.context(
+        dry_run=False,
+        billed_allowed=billed_allowed,
+        extra={
+            "registry": instance.registry,
+            "resume": resume or {},
+            "gate_approvals": approvals or {},
+        },
+    )
+    try:
+        result = await cap.invoke(values, ctx)
+    except DivinePenError as exc:
+        await instance.repo.update_task(
+            task_id, status="FAILED", error=dumps(exc.as_dict()), finished_at=_now()
+        )
+        return
+    error = result.error or {}
+    if error.get("code") == "pipeline_paused":
+        await instance.repo.update_task(
+            task_id,
+            status="AWAITING_INPUT",
+            result=dumps({"paused": error.get("detail", {})}),
+            progress=_paused_progress(error),
+        )
+        return
+    if result.status.value == "failed":
+        await instance.repo.update_task(
+            task_id, status="FAILED", error=dumps(error), finished_at=_now()
+        )
+        return
+    await instance.repo.update_task(
+        task_id,
+        status="SUCCEEDED",
+        progress=100,
+        result=dumps(
+            {
+                "output": _output_dump(result),
+                "artifacts": _artifact_uris(result),
+                "elapsed_ms": result.elapsed_ms,
+            }
+        ),
+        finished_at=_now(),
+    )
+
+
+def _output_dump(result: Any) -> Any:
+    output = result.output
+    return output.model_dump(mode="json") if hasattr(output, "model_dump") else output
+
+
+def _artifact_uris(result: Any) -> list[str]:
+    """产物地址：能力直接挂在 result.artifacts 上；单步能力在 output.uri；
+    流水线在 output.final_artifacts。三处都看，页面才不缺产物。"""
+    uris = [a.uri for a in result.artifacts]
+    if uris:
+        return uris
+    dump = _output_dump(result)
+    if isinstance(dump, dict):
+        if dump.get("uri"):
+            return [str(dump["uri"])]
+        if dump.get("final_artifacts"):
+            return [str(u) for u in dump["final_artifacts"]]
+    return []
+
+
+def _spawn(coro: Any) -> None:
+    import asyncio
+
+    task = asyncio.get_running_loop().create_task(coro)
+    _BG.add(task)
+    task.add_done_callback(_BG.discard)
+    task.add_done_callback(_log_bg_error)
+
+
+def _now() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).astimezone().isoformat(timespec="seconds")
+
+
+def _paused_progress(error: dict[str, Any]) -> int:
+    detail = error.get("detail") or {}
+    total = max(int(detail.get("total_steps") or 0), 1)
+    done = int(detail.get("start_index") or 0)
+    return min(95, int(done / total * 100))
 
 
 def _coerce_json(raw: Any) -> Any:

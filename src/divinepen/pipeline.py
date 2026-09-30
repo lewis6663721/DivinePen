@@ -24,7 +24,7 @@ from .core.capability import (
     Plan,
     RunResult,
 )
-from .core.errors import CapabilityError
+from .core.errors import CapabilityError, PipelinePaused
 from .core.manifest import CostUnit
 from .core.registry import CapabilityRegistry
 from .core.runtime import RunContext
@@ -37,8 +37,9 @@ class StepSpec(BaseModel):
     capability: str = Field(description="要调用的原子能力 id")
     inputs: dict[str, Any] = Field(default_factory=dict, description="能力入参；值里可含 $ 引用")
     description: str = ""
-
-
+    #: 人工闸口：执行到这里先停下，等 resume 带确认/改参回来（interactive 模式的核心）
+    gate: bool = False
+    gate_prompt: str = Field(default="", description="停在闸口时问用户什么")
 class Recipe(BaseModel):
     """一条流水线的静态定义。"""
 
@@ -187,10 +188,32 @@ class PipelineCapability(Capability):
     async def execute(self, inputs: BaseModel, plan: Plan, ctx: RunContext) -> CapabilityOutcome:
         params = inputs.model_dump(mode="json")
         registry: CapabilityRegistry = ctx.extra.get("registry") or _registry_from(ctx)
-        outputs: dict[str, Any] = {}
-        steps: list[PipelineStepResult] = []
-        for step in self.recipe.steps:
+        resume = ctx.extra.get("resume") or {}
+        outputs: dict[str, Any] = dict(resume.get("outputs") or {})
+        steps: list[PipelineStepResult] = [
+            PipelineStepResult.model_validate(s) for s in (resume.get("steps") or [])
+        ]
+        start_index = int(resume.get("start_index") or 0)
+        approvals: dict[str, Any] = ctx.extra.get("gate_approvals") or {}
+        for index, step in enumerate(self.recipe.steps):
+            if index < start_index:
+                continue
+            if step.gate and step.id not in approvals:
+                raise PipelinePaused(
+                    f"流水线停在人工闸口：{step.id}",
+                    detail={
+                        "step_id": step.id,
+                        "gate_prompt": step.gate_prompt or step.description,
+                        "start_index": index,
+                        "total_steps": len(self.recipe.steps),
+                        "outputs": outputs,
+                        "steps": [s.model_dump(mode="json") for s in steps],
+                    },
+                )
             resolved = resolve_refs(step.inputs, outputs=outputs, params=params)
+            override = approvals.get(step.id)
+            if isinstance(override, dict):
+                resolved = {**resolved, **override}
             cap = registry.get(step.capability)
             result = await cap.invoke(
                 resolved,

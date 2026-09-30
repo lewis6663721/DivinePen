@@ -6,9 +6,19 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel, Field
 
 import divinepen
-from divinepen.pipeline import PipelineError, resolve_refs
+from divinepen.core.artifact import Artifact
+from divinepen.core.manifest import AgentMode, CapabilityManifest, Category
+from divinepen.pipeline import (
+    PipelineCapability,
+    PipelineError,
+    PipelineOutput,
+    Recipe,
+    StepSpec,
+    resolve_refs,
+)
 
 pytest_plugins = []
 
@@ -215,3 +225,90 @@ async def test_pipeline_step_failure_is_attributed(assets, tmp_path):
     )
     assert result.status.value == "failed"
     assert "titled" in (result.error or {}).get("message", "")
+
+
+# ── interactive：人工闸口暂停 / 续跑 ────────────────────────────────
+
+
+class _GateRecipeInput(BaseModel):
+    source: Artifact = Field(description="源")
+    logo: Artifact = Field(description="角标")
+    duration: float = Field(default=1.0, gt=0)
+
+
+_GATE_RECIPE = Recipe(
+    id="test.gate",
+    name="闸口自检",
+    steps=[
+        StepSpec(id="clip", capability="media.trim",
+                 inputs={"source": "$params.source", "duration": "$params.duration", "reencode": True}),
+        StepSpec(id="packaged", capability="media.pip", gate=True,
+                 gate_prompt="裁剪结果 OK 吗？",
+                 inputs={"base": "$clip.uri", "overlay": "$params.logo", "position": "top_right", "width": 40}),
+    ],
+)
+
+
+class _GateCap(PipelineCapability):
+    manifest = CapabilityManifest(
+        id="media.test_gate", name="闸口自检", category=Category.MEDIA,
+        description="测试用：第二步是人工闸口", agent_mode=AgentMode.INTERACTIVE,
+    )
+    recipe = _GATE_RECIPE
+    Input = _GateRecipeInput
+    Output = PipelineOutput
+
+
+async def test_gate_pauses_then_resumes(assets, tmp_path):
+    registry = divinepen.registry()
+    registry.register(_GateCap(), source="agent:test", replace=True)
+    values = {"source": str(assets["clip"]), "logo": str(assets["logo"]), "duration": 1}
+
+    ctx = divinepen.local_context(media_root=tmp_path / "media", registry=registry)
+    first = await registry.get("media.test_gate").invoke(values, ctx)
+    assert first.status.value == "failed"
+    assert first.error["code"] == "pipeline_paused"
+    detail = first.error["detail"]
+    assert detail["step_id"] == "packaged"
+    assert detail["start_index"] == 1
+    assert detail["outputs"]["clip"]["uri"]  # 中间产物保留下来了
+
+    # 带着确认续跑：从暂停态恢复，不重跑第一步
+    ctx2 = divinepen.local_context(
+        media_root=tmp_path / "media",
+        registry=registry,
+        resume={"outputs": detail["outputs"], "steps": detail["steps"], "start_index": detail["start_index"]},
+        gate_approvals={"packaged": {"width": 50}},
+    )
+    second = await registry.get("media.test_gate").invoke(values, ctx2)
+    assert second.status.value == "succeeded", second.error
+    # 续跑会把暂停前的步骤历史一起带上，但不会重跑它们
+    assert [s.step_id for s in second.output.steps] == ["clip", "packaged"]
+    assert Path(second.output.final_artifacts[0]).is_file()
+
+
+# ── 后台执行端点（pipeline 模式的运行方式）─────────────────────────
+
+
+def test_background_run_endpoint_creates_task(assets):
+    """端点职责：提交即落库 + 303 去任务中心。
+
+    后台协程跑在**服务自己的事件循环**上；TestClient 每个请求一个循环，
+    观察不到后台完成（那是测试客户端的限制，不是服务的）。完整链路在真服务上验。
+    """
+    from fastapi.testclient import TestClient
+
+    from divinepen_server.web import create_app
+
+    app = create_app()
+    with TestClient(app, raise_server_exceptions=False) as client:
+        r = client.post(
+            "/capabilities/media.trim/run",
+            data={"source": str(assets["clip"]), "start": "0", "duration": "0.5"},
+            follow_redirects=False,
+        )
+        assert r.status_code == 303
+        task_url = r.headers["location"].split("?")[0]
+        page = client.get(task_url).text
+        assert task_url.rsplit("/", 1)[-1] in page
+        assert ("PENDING" in page) or ("RUNNING" in page) or ("SUCCEEDED" in page)

@@ -19,7 +19,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
-from ..core.manifest import Requirement
+from ..core.manifest import AgentMode, Requirement
 from ..core.registry import CapabilityRegistry
 
 #: 插件声明的 entry point 组名
@@ -31,6 +31,9 @@ class AgentManifest(BaseModel):
 
     id: str = Field(description="插件标识，如 jinrong-video")
     name: str
+    #: 智能体运行模式：react（agentscope 推理）/ pipeline（固定流程后台跑）/
+    #: interactive（workflow + 每步人工介入）
+    mode: AgentMode = AgentMode.PIPELINE
     version: str = "0.1.0"
     description: str = ""
     #: 依赖的原子能力 id。启用前会逐个体检，缺哪个报哪个。
@@ -70,7 +73,16 @@ class AgentPlugin(ABC):
                 missing.append(f"缺少 {req.value} 可执行文件")
             elif req is Requirement.FFMPEG_SUBTITLES and not _ffmpeg_has_subtitles():
                 missing.append("ffmpeg 缺 subtitles 滤镜（未编译 libass）")
+        if self.manifest.mode is AgentMode.REACT and not _agentscope_available():
+            missing.append("react 模式需要 agentscope（pip install agentscope）")
         return missing
+
+
+def _agentscope_available() -> bool:
+    """react 模式是可选依赖：没装 agentscope 就明说，不让插件假装能推理。"""
+    from importlib.util import find_spec
+
+    return find_spec("agentscope") is not None
 
 
 def _ffmpeg_has_subtitles() -> bool:

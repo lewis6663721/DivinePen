@@ -162,6 +162,7 @@ class Capability(ABC):
             "category": m.category.value,
             "description": m.description,
             "model_capability": m.model_capability,
+            "agent_mode": m.agent_mode.value if m.agent_mode else None,
             "requires": [r.value for r in m.requires],
             "cost": m.cost.model_dump(mode="json"),
             "async_task": m.async_task,

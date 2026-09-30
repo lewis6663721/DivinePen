@@ -172,6 +172,7 @@ pre.code .n{color:var(--ink)}
 .state{display:inline-flex;align-items:center;gap:6px;font:500 11px/1 var(--mono);letter-spacing:.04em}
 .state::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
 .state.PENDING,.state.RUNNING{color:var(--billing)}
+.state.AWAITING_INPUT{color:var(--signal)}
 .state.SUCCEEDED,.state.dry_run,.state.succeeded{color:var(--ok)}
 .state.FAILED,.state.failed{color:var(--danger)}
 .state.CANCELED,.state.UNKNOWN{color:var(--ink-4)}

@@ -66,7 +66,12 @@
           <p style="color:var(--ink-3);font-size:13px;margin:0 0 var(--s5)">该能力不需要参数。</p>
         {% endif %}
         <button class="btn primary" type="submit" data-confirm="这一步只是预演：不联网、不扣费。继续？">预演请求</button>
-        <span class="hint" style="margin-left:var(--s3)">dry-run：算出真实请求与命令，但不执行</span>
+        <button class="btn" type="submit" formaction="/capabilities/{{ cap.id }}/run"
+                data-confirm="提交后台执行：pipeline 一路跑完，interactive 会在闸口停下等你。继续？">后台执行</button>
+        {% if cap.cost and cap.cost.unit and cap.cost.unit != 'free' %}
+        <label class="check"><input type="checkbox" name="confirm" value="1"/> 我确认这次调用会产生费用</label>
+        {% endif %}
+        <span class="hint" style="margin-left:var(--s3)">预演零成本；后台执行去任务中心看进度</span>
       </form>
     </div>
   </div>

@@ -365,3 +365,29 @@ DivinePen/
 - 参考图给阿里系必须**供应商可拉取**（公网 URL / OSS 临时 URL / base64 data URL），相对路径会 `Failed to download`（好在提交即失败、不扣费）。
 - 模型输出可能回显 prompt（`orig_prompt`），日志/接口脱敏要覆盖这类回显字段。
 - 地域必须一致：模型、Endpoint、API Key 三者同地域，否则调用失败。
+
+---
+
+## 12. 能力目录三分区与智能体三模式（P3 修订）
+
+`category` 回答"干什么"（llm/image/video/audio/media），**目录分区**回答"靠什么干"，
+两者正交。分区由注册表在注册时判定（`CapabilityKind`）：
+
+| 分区 | 判定 | 例子 | 成本形态 |
+|---|---|---|---|
+| `toolkit` AI 工具包 | 绑定模型（`model_capability` 非空），必须调供应商 API | `video.t2v`、`image.t2i`、`llm.chat` | 计费，走三道闸 |
+| `editing` 剪辑 | 本地硬代码实现，主要是 ffmpeg | `media.trim`、`media.concat`、`media.pip` | 免费 |
+| `agent` 智能体 | 由插件注册（source=`agent:*`）或声明了 `agent_mode` | `media.shortvideo_package` | 视步骤而定 |
+
+智能体再按 `AgentMode` 分三种运行模式：
+
+* **react**：基于 agentscope 的 ReAct 循环（LLM 推理 / 记忆 / 上下文管理），步骤由模型临场决定。
+  agentscope 是**可选依赖**（`pip install agentscope`），没装时插件体检明说，不让它假装能推理。
+* **pipeline**：流程写死（`Recipe`），用户只给输入；服务端 `POST /capabilities/{id}/run`
+  提交即落库 `dp_task` 并后台执行，完事把结果与产物写回任务。
+* **interactive**：同一条 workflow，但步骤可标 `gate=True`（人工闸口）。执行到闸口抛
+  `PipelinePaused`，任务转 `AWAITING_INPUT`，暂停态（中间产物、停在哪一步）落库；
+  `POST /tasks/{id}/resume` 带 `gate_approvals`（可原样确认、可改该步入参）续跑，不重跑已完成步骤。
+
+不变式：闸口暂停**不是失败**（错误码 `pipeline_paused`），页面据此渲染"确认并继续"；
+后台执行与预演共用同一份 plan/组装代码，所以"点下去会发生什么"永远先免费可见。

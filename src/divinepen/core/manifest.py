@@ -26,6 +26,34 @@ class Category(StrEnum):
     SYSTEM = "system"  # 编排/文本/存储等底座自身能力
 
 
+class CapabilityKind(StrEnum):
+    """能力目录的三大分区（与 category 正交：category 说干什么，kind 说靠什么干）。
+
+    * ``toolkit``  AI 工具包：必须调模型 API 才能完成（文生图/文生视频/对话…）
+    * ``editing``  剪辑：硬代码实现，主要是 ffmpeg（拼接/裁剪/画中画…）
+    * ``agent``    智能体：以插件形式安装的业务能力，见 :class:`AgentMode`
+    """
+
+    TOOLKIT = "toolkit"
+    EDITING = "editing"
+    AGENT = "agent"
+
+
+class AgentMode(StrEnum):
+    """智能体的三种运行模式。
+
+    * ``react``       推理型：基于 agentscope 的 ReAct 循环（LLM 推理/记忆/上下文管理），
+                      步骤由模型临场决定
+    * ``pipeline``    固定流程：流程写死，用户只给输入；后台异步执行，完事返回最终结果
+    * ``interactive`` 可介入工作流：同样是 workflow，但每一步之间允许人工确认/改参数
+                      （漫剧制作就是这一类）
+    """
+
+    REACT = "react"
+    PIPELINE = "pipeline"
+    INTERACTIVE = "interactive"
+
+
 class Requirement(StrEnum):
     """运行前置条件。启用/调用前据此做体检，缺什么报什么。"""
 
@@ -76,6 +104,8 @@ class CapabilityManifest(BaseModel):
     model_capability: str | None = None
     requires: list[Requirement] = Field(default_factory=list)
     cost: CostModel = Field(default_factory=CostModel)
+    #: 智能体模式。非智能体能力为 None；插件能力必须声明。
+    agent_mode: AgentMode | None = None
     #: 是否需要「提交 → 轮询 → 收尾」的异步任务生命周期
     async_task: bool = False
     #: 同输入是否可命中产物缓存（贵能力建议 True）

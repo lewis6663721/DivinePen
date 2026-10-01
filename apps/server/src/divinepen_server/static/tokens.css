@@ -193,6 +193,10 @@ input:disabled{color:var(--ink-4);cursor:not-allowed}
   box-shadow:0 0 0 0 var(--signal-glow)}
 .btn.primary:hover{background:var(--signal-strong)}
 .btn.ghost{background:transparent}
+/* 「预演」是次要动作：主按钮只留一个 —— 执行。想先看一眼请求体的人才需要它，
+   所以用虚线、低对比度，别让它跟主按钮抢注意力。 */
+.btn.quiet{background:transparent;border-style:dashed;color:var(--ink-3)}
+.btn.quiet:hover{background:transparent;color:var(--ink);border-color:var(--line-strong)}
 
 /* ── 签名 3：任务胶片格 ───────────────────────────────────────── */
 .filmstrip{display:flex;gap:3px;padding:var(--s1) 0}

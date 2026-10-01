@@ -58,7 +58,7 @@
       {% endif %}
     </div>
     <div class="panel-body">
-      <form method="post" action="/capabilities/{{ cap.id }}/dry-run">
+      <form method="post" action="/capabilities/{{ cap.id }}/run">
         {% if cap.model_driven %}{{ model_picker(picker, cap.id) }}{% endif %}
         {% for g in cap.form.groups %}
           {% if g.fields %}
@@ -74,13 +74,13 @@
           </p>
         {% endif %}
         <div class="actions">
-          <button class="btn primary" type="submit" data-confirm="这一步只是预演：不联网、不扣费。继续？">预演请求</button>
-          <button class="btn" type="submit" formaction="/capabilities/{{ cap.id }}/run"
-                  data-confirm="提交后台执行：pipeline 一路跑完，interactive 会在闸口停下等你。继续？">后台执行</button>
+          <button class="btn primary" type="submit" data-confirm="提交执行：能力在后台跑完，进度和产物都在任务中心。继续？">{{ '后台执行' if cap.async_task else '执行' }}</button>
           {% if cap.cost and cap.cost.unit and cap.cost.unit != 'free' %}
           <label class="check"><input type="checkbox" name="confirm" value="1"/> 我确认这次调用会产生费用</label>
           {% endif %}
-          <span class="hint">预演零成本；后台执行去任务中心看进度</span>
+          <button class="btn quiet" type="submit" formaction="/capabilities/{{ cap.id }}/dry-run"
+                  data-confirm="预演：不联网、不扣费，只看将要发出的请求体。继续？">预演</button>
+          <span class="hint">执行去任务中心看进度；预演只是先看一眼请求体</span>
         </div>
       </form>
     </div>

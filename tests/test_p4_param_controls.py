@@ -172,7 +172,7 @@ def client():
 
 
 def _model_ids(client) -> list[str]:
-    """模型详情链接的形状是 ``/models/{provider}:{key}``，不是数字 id。
+    r"""模型详情链接的形状是 ``/models/{provider}:{key}``，不是数字 id。
 
     曾经按 ``\d+`` 抓，于是这个"真值"永远是空集合 —— 空集合让下面
     "每个字段都有对应控件"的断言**空前地容易通过**。抓不到的壳子比断言失败更危险，
@@ -202,8 +202,7 @@ def test_every_catalog_field_renders_its_declared_control(client):
     problems: list[str] = []
     for model_id in ids:
         html = client.get(f"/models/{model_id}").text
-        for match in re.finditer(r'<div class="field" data-control="([^"]*)">', html):
-            checked += 1
+        checked += len(re.findall(r'<div class="field" data-control="[^"]*">', html))
         # 只核对"这一页讲的那个模型"。曾经的做法是"页面上出现了这个参数名就算数"，
         # 但 ``parameters.ratio`` 这样的参数几乎每个视频模型都有 —— 于是拿 A 模型的
         # 可选值去要求 B 模型的页面，报出来的全是假问题，真问题反而淹在里面。

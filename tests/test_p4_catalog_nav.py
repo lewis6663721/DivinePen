@@ -11,10 +11,12 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+import divinepen_server
 from divinepen_server.catalog import MODELS  # noqa: F401  （确保 app 依赖已就绪）
 
 ZONES = ("toolkit", "editing", "agent")
@@ -131,3 +133,52 @@ def test_other_pages_mark_their_own_group(client):
     current = [g for g in re.findall(r'<details class="navgroup"[^>]*>', html) if "data-current" in g]
     assert len(current) == 1
     assert 'data-remember="nav:系统"' in current[0]
+
+
+# ── 侧栏默认隐藏（悬停滑出）──────────────────────────────────────
+
+
+def test_sidebar_is_wrapped_for_offcanvas(client):
+    html = client.get("/").text
+    assert '<div class="navwrap" id="navwrap">' in html
+    # 侧栏必须**在**热区容器里面：滑出动画靠 .navwrap:hover 触发
+    inside = html.split('<div class="navwrap" id="navwrap">', 1)[1].split("</aside>", 1)[0]
+    assert '<aside class="side">' in inside
+    assert inside.count('<div class="side-top">') == 1
+
+
+def test_sidebar_has_a_pin_button(client):
+    html = client.get("/").text
+    assert 'id="navpin"' in html
+    assert 'aria-pressed="false"' in html
+    assert "钉住" in html
+
+
+def test_navwrap_precedes_main_in_the_shell(client):
+    """主内容在最外层只有 .shell 一个网格，侧栏换列时不能把正文挤到别处。"""
+    html = client.get("/").text
+    shell = html.split('<div class="shell">', 1)[1]
+    assert shell.index('id="navwrap"') < shell.index('<main class="main">')
+
+
+def test_offcanvas_rules_exist_in_css():
+    """CSS 是这功能的唯一实现，删一行就悄悄失效 —— 静态守一下。"""
+    css = (Path(divinepen_server.__file__).parent / "static" / "app.css").read_text(
+        encoding="utf-8"
+    )
+    assert ".navwrap{position:fixed" in css
+    assert "transform:translateX(-100%)" in css
+    # 悬停 / 键盘聚焦 / 翻页后的 peek 三条都要能把它拉出来
+    assert ".navwrap:hover > .side,.navwrap:focus-within > .side,.navwrap.peek > .side" in css
+    # 钉住 = 回到常驻列，正文让位
+    assert "body.nav-pinned .shell{grid-template-columns:236px 1fr}" in css
+    # 收起时留把手，否则没人知道左边能拉
+    assert ".navwrap::after" in css
+
+
+def test_offcanvas_scripts_are_wired():
+    js = (Path(divinepen_server.__file__).parent / "static" / "app.js").read_text(encoding="utf-8")
+    assert 'getElementById("navwrap")' in js
+    assert 'getElementById("navpin")' in js
+    assert '"nav-pinned"' in js
+    assert "pointerleave" in js  # peek 的兜底收起

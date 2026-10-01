@@ -9,11 +9,18 @@
 </head>
 <body>
 <div class="shell">
+  {# 侧栏默认不占布局：左边缘一条 14px 热区，鼠标碰上去才滑出来。
+     「钉住」把它变回常驻列（localStorage 记住）。 #}
+  <div class="navwrap" id="navwrap">
   <aside class="side">
-    <a class="brand" href="/">
-      <span class="mark">DP</span>
-      <span><b>DivinePen</b><small>视频创作底座</small></span>
-    </a>
+    <div class="side-top">
+      <a class="brand" href="/">
+        <span class="mark">DP</span>
+        <span><b>DivinePen</b><small>视频创作底座</small></span>
+      </a>
+      <button class="pinbtn" id="navpin" type="button" aria-pressed="false"
+              title="钉住侧栏：鼠标移开也不收起，正文为它让出位置">钉住</button>
+    </div>
     {# 分组可折叠：全展开时侧栏比正文还长，收起后 16 个入口和 3 个分组能同时看见。
        当前页所在的分组默认展开（服务端渲染 open），之后以用户自己的开合为准 ——
        收起时标题行会高亮，所以"当前在哪"不会因为折叠而变模糊。 #}
@@ -51,6 +58,7 @@
       {% endif %}
     </div>
   </aside>
+  </div>
 
   <main class="main">
     <div class="topbar">

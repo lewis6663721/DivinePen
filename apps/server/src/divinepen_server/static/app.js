@@ -111,4 +111,50 @@
       } catch {}
     });
   });
+
+  // ── 侧栏：钉住 + 从侧栏跳页后"先亮一下"──────────────────────
+  // 侧栏默认藏起来（鼠标碰左边缘才出来）。连续翻页时每次都要重新去够左边缘太累，
+  // 所以从侧栏点了链接之后，新页面让侧栏自己亮 3 秒：还想接着翻就直接点，
+  // 不想翻就等它自己收回去。定时兜底，避免鼠标全程不动时它一直挂着。
+  const navwrap = document.getElementById("navwrap");
+  const pinbtn = document.getElementById("navpin");
+  if (navwrap && pinbtn) {
+    const PIN = "dp:nav-pinned";
+    const PEEK = "dp:nav-peek";
+    const setPinned = (on) => {
+      document.body.classList.toggle("nav-pinned", on);
+      pinbtn.setAttribute("aria-pressed", on ? "true" : "false");
+      pinbtn.textContent = on ? "已钉住" : "钉住";
+      try {
+        localStorage.setItem(PIN, on ? "1" : "0");
+      } catch {}
+    };
+    try {
+      setPinned(localStorage.getItem(PIN) === "1");
+    } catch {}
+    pinbtn.addEventListener("click", () =>
+      setPinned(!document.body.classList.contains("nav-pinned")),
+    );
+
+    navwrap.querySelectorAll("a").forEach((a) =>
+      a.addEventListener("click", () => {
+        try {
+          sessionStorage.setItem(PEEK, "1");
+        } catch {}
+      }),
+    );
+    try {
+      if (sessionStorage.getItem(PEEK) === "1") {
+        sessionStorage.removeItem(PEEK);
+        navwrap.classList.add("peek");
+        let timer = 0;
+        const done = () => {
+          navwrap.classList.remove("peek");
+          clearTimeout(timer);
+        };
+        timer = setTimeout(done, 3000);
+        navwrap.addEventListener("pointerleave", done, { once: true });
+      }
+    } catch {}
+  }
 })();

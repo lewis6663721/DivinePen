@@ -287,47 +287,163 @@ class Repo:
         return False
 
     # 凭据 --------------------------------------------------------
-    async def credentials(self) -> list[dict[str, Any]]:
-        rows = await self.db.query("SELECT * FROM dp_credential ORDER BY provider")
-        for row in rows:
-            row["api_key_masked"] = mask_secret(row.get("api_key", ""))
-            row["has_key"] = bool(row.get("api_key"))
-        return rows
+    # 一个供应商可以配多把钥匙（额度分开的账号、正式号与测试号并存），
+    # 但**调用时只能挑一把**：is_default 就是那一把。所有"拿钥匙"的路径
+    # 都走 default 优先，页面按 is_default DESC 排 —— 顺序本身就是答案。
+    @staticmethod
+    def shape_credential(row: dict[str, Any]) -> dict[str, Any]:
+        """把一行钥匙整理成对外的形状（掩码、布尔化）。
 
-    async def credential(self, provider: str, workspace: str = "") -> dict[str, Any] | None:
-        return await self.db.query_one(
-            "SELECT * FROM dp_credential WHERE provider = ? AND workspace = ?",
-            (provider, workspace),
-        )
+        三个取数方法（列表 / 单取 / 按 id）都得过这一道 —— 否则同一个字段
+        会因为调用路径不同而时而是 ``0/1`` 时而是 ``True/False``，
+        调用方就得记住"从哪儿拿的"，那种约定迟早会漏。
+        """
+        row["api_key_masked"] = mask_secret(row.get("api_key", ""))
+        row["has_key"] = bool(row.get("api_key"))
+        row["is_default"] = bool(row.get("is_default"))
+        # last_test_ok 允许是 None（从没测过）—— 那与"测了但失败"是两回事，
+        # 别让"没测过"看起来像"挂了"。
+        if row.get("last_test_ok") is not None:
+            row["last_test_ok"] = bool(row["last_test_ok"])
+        return row
 
-    async def raw_api_key(self, provider: str, workspace: str = "") -> str:
-        row = await self.credential(provider, workspace)
+    async def credentials(self, provider: str | None = None) -> list[dict[str, Any]]:
+        """某供应商（或全部）的钥匙清单，默认的那把排最前。"""
+        sql = "SELECT * FROM dp_credential"
+        params: tuple[Any, ...] = ()
+        if provider:
+            sql += " WHERE provider = ?"
+            params = (provider,)
+        sql += " ORDER BY provider, workspace, is_default DESC, created_at"
+        return [self.shape_credential(row) for row in await self.db.query(sql, params)]
+
+    async def default_credentials(self) -> dict[str, dict[str, Any]]:
+        """``{供应商: 默认钥匙}``。
+
+        给"这个供应商配了吗"这类判断用。注意它**不是** ``credentials()`` 的
+        简单索引 —— 多把钥匙时按 provider 建字典只会留下最后一行，
+        默认不默认全看插入顺序，那是 bug 不是设计。
+        """
+        out: dict[str, dict[str, Any]] = {}
+        for row in await self.credentials():
+            current = out.get(row["provider"])
+            if current is None or (row["is_default"] and not current["is_default"]):
+                out[row["provider"]] = row
+        return out
+
+    async def credential(
+        self, provider: str, workspace: str = "", label: str | None = None
+    ) -> dict[str, Any] | None:
+        """按名字取一把；不点名就等于"取默认那把"。"""
+        if label is None:
+            row = await self.db.query_one(
+                "SELECT * FROM dp_credential WHERE provider = ? AND workspace = ? "
+                "ORDER BY is_default DESC, created_at LIMIT 1",
+                (provider, workspace),
+            )
+        else:
+            row = await self.db.query_one(
+                "SELECT * FROM dp_credential WHERE provider = ? AND workspace = ? AND label = ?",
+                (provider, workspace, label),
+            )
+        return self.shape_credential(row) if row else None
+
+    async def credential_by_id(self, cred_id: str) -> dict[str, Any] | None:
+        row = await self.db.query_one("SELECT * FROM dp_credential WHERE id = ?", (cred_id,))
+        return self.shape_credential(row) if row else None
+
+    async def raw_api_key(self, provider: str, workspace: str = "", label: str | None = None) -> str:
+        row = await self.credential(provider, workspace, label)
         if not row:
             return ""
         return self.box.open(row.get("api_key", ""))
 
-    async def save_credential(self, provider: str, api_key: str, *, workspace: str = "") -> None:
-        sealed = self.box.seal(api_key.strip())
+    async def save_credential(
+        self,
+        provider: str,
+        api_key: str,
+        *,
+        label: str = "默认",
+        workspace: str = "",
+        make_default: bool | None = None,
+    ) -> str:
+        """新增或覆盖「同一供应商 + 同一工作区 + 同一名字」下的那把钥匙。
+
+        两条规矩，都是为了不出现"配了却用不上"的状态：
+
+        * **第一把自动成为默认** —— 否则配完钥匙，调用仍然发不出去。
+        * 覆盖一把已经存在的钥匙时，**不改它的默认身份** ——
+          除非用户明确要求。改个密钥不该顺手把默认换掉。
+        """
+        label = (label or "默认").strip() or "默认"
+        existing = await self.credential(provider, workspace, label)
+        has_any = await self.db.query_one(
+            "SELECT id FROM dp_credential WHERE provider = ? AND workspace = ? LIMIT 1",
+            (provider, workspace),
+        )
+        if make_default is None:
+            make_default = not has_any
+        cred_id = existing["id"] if existing else f"{provider}:{workspace or '-'}:{label}"
+        update = ["api_key", "encrypted", "updated_at"]
+        if make_default:
+            update.append("is_default")
         await self.db.upsert(
             "dp_credential",
-            keys={"provider": provider, "workspace": workspace},
+            keys={"provider": provider, "workspace": workspace, "label": label},
             data={
-                "id": f"{provider}:{workspace or '-'}",
-                "api_key": sealed,
+                "id": cred_id,
+                "api_key": self.box.seal(api_key.strip()),
                 "encrypted": int(self.box.encrypted),
+                "is_default": int(bool(make_default)),
                 "created_at": now_iso(),
                 "updated_at": now_iso(),
             },
-            update=["api_key", "encrypted", "updated_at"],
+            update=update,
+        )
+        if make_default:
+            await self.set_default_credential(provider, cred_id, workspace)
+        return cred_id
+
+    async def set_default_credential(
+        self, provider: str, cred_id: str, workspace: str = ""
+    ) -> None:
+        """把某把钥匙设为默认。**先全部清零再置一**，不留两个默认。"""
+        row = await self.credential_by_id(cred_id)
+        if row:
+            workspace = row.get("workspace", workspace) or ""
+        await self.db.execute(
+            "UPDATE dp_credential SET is_default = 0 WHERE provider = ? AND workspace = ?",
+            (provider, workspace),
+        )
+        await self.db.execute(
+            "UPDATE dp_credential SET is_default = 1, updated_at = ? WHERE id = ?",
+            (now_iso(), cred_id),
         )
 
-    async def record_credential_test(
-        self, provider: str, ok: bool, note: str, *, workspace=""
-    ) -> None:
+    async def delete_credential(self, cred_id: str) -> dict[str, Any] | None:
+        """删一把。删掉的若正是默认，**自动把剩下最早的一把顶上去** ——
+        供应商不该出现"有钥匙但没有默认"的状态，那等于没钥匙。
+        """
+        row = await self.credential_by_id(cred_id)
+        if not row:
+            return None
+        await self.db.execute("DELETE FROM dp_credential WHERE id = ?", (cred_id,))
+        if row.get("is_default"):
+            nxt = await self.credential(row["provider"], row.get("workspace", "") or "")
+            if nxt and nxt["id"] != cred_id:
+                await self.set_default_credential(row["provider"], nxt["id"])
+        return row
+
+    async def record_credential_test(self, cred_id: str, ok: bool, note: str) -> None:
+        """记录某把钥匙的连通性测试结果。
+
+        按 **id** 记，不按供应商记：多把钥匙的场景下"这个供应商通不通"
+        本身就没有意义 —— 不通的永远是具体那一把。
+        """
         await self.db.execute(
             "UPDATE dp_credential SET last_test_at = ?, last_test_ok = ?, last_test_note = ? "
-            "WHERE provider = ? AND workspace = ?",
-            (now_iso(), int(ok), note, provider, workspace),
+            "WHERE id = ?",
+            (now_iso(), int(ok), note, cred_id),
         )
 
     # 用户 --------------------------------------------------------

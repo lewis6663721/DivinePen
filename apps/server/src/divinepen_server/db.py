@@ -71,14 +71,20 @@ CREATE TABLE IF NOT EXISTS dp_credential (
   id            TEXT PRIMARY KEY,
   provider      TEXT NOT NULL,
   workspace     TEXT NOT NULL DEFAULT '',
+  -- label 就是"这把钥匙叫什么"，同一个供应商下不重名 —— 它是人的标识，
+  -- id 是机器的标识，两者都要有：改名不该动 id，换钥匙不该动名字。
+  label         TEXT NOT NULL DEFAULT '默认',
   api_key       TEXT NOT NULL DEFAULT '',
   encrypted     INTEGER NOT NULL DEFAULT 0,
+  -- 一个供应商可以配多把钥匙（额度分开的账号、正式号与测试号），
+  -- 但调用时只能挑一把 —— 这就是那一把。
+  is_default    INTEGER NOT NULL DEFAULT 0,
   last_test_at  TEXT,
   last_test_ok  INTEGER,
   last_test_note TEXT NOT NULL DEFAULT '',
   created_at    TEXT NOT NULL DEFAULT '',
   updated_at    TEXT NOT NULL DEFAULT '',
-  UNIQUE(provider, workspace)
+  UNIQUE(provider, workspace, label)
 );
 
 CREATE TABLE IF NOT EXISTS dp_user (
@@ -177,14 +183,16 @@ CREATE TABLE IF NOT EXISTS dp_credential (
   id            VARCHAR(191) PRIMARY KEY,
   provider      VARCHAR(64) NOT NULL,
   workspace     VARCHAR(64) NOT NULL DEFAULT '',
+  label         VARCHAR(64) NOT NULL DEFAULT '默认',
   api_key       TEXT NOT NULL,
   encrypted     TINYINT(1) NOT NULL DEFAULT 0,
+  is_default    TINYINT(1) NOT NULL DEFAULT 0,
   last_test_at  VARCHAR(40) NULL,
   last_test_ok  TINYINT(1) NULL,
   last_test_note VARCHAR(500) NOT NULL DEFAULT '',
   created_at    VARCHAR(40) NOT NULL DEFAULT '',
   updated_at    VARCHAR(40) NOT NULL DEFAULT '',
-  UNIQUE KEY uq_cred_provider_ws (provider, workspace)
+  UNIQUE KEY uq_cred_scope (provider, workspace, label)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS dp_user (
@@ -315,6 +323,7 @@ class SqliteStore(Store):
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA_SQLITE)
+        _migrate_credentials_sqlite(self._conn)
         self._conn.commit()
 
     @property
@@ -413,6 +422,103 @@ def _normalize(row: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _migrate_credentials_sqlite(conn: Any) -> None:
+    """老库升级：``dp_credential`` 从"一供应商一把钥匙"改成"多把 + 默认"。
+
+    ``CREATE TABLE IF NOT EXISTS`` 管不了已经存在的表，而旧的
+    ``UNIQUE(provider, workspace)`` 是把"只能有一把"写死在表定义里的 ——
+    ``ALTER`` 拆不掉表级 UNIQUE，只能重建：拷数据、换名字，
+    约束与索引跟着新定义走。
+
+    老行原样保留并标成默认：**升级不该让任何一把已经能用的钥匙失效**。
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='dp_credential'"
+    ).fetchone()
+    if not row or not row[0] or "label" in row[0]:
+        return
+    conn.executescript(
+        """
+        CREATE TABLE dp_credential__new (
+          id            TEXT PRIMARY KEY,
+          provider      TEXT NOT NULL,
+          workspace     TEXT NOT NULL DEFAULT '',
+          label         TEXT NOT NULL DEFAULT '默认',
+          api_key       TEXT NOT NULL DEFAULT '',
+          encrypted     INTEGER NOT NULL DEFAULT 0,
+          is_default    INTEGER NOT NULL DEFAULT 0,
+          last_test_at  TEXT,
+          last_test_ok  INTEGER,
+          last_test_note TEXT NOT NULL DEFAULT '',
+          created_at    TEXT NOT NULL DEFAULT '',
+          updated_at    TEXT NOT NULL DEFAULT '',
+          UNIQUE(provider, workspace, label)
+        );
+        INSERT INTO dp_credential__new
+          (id, provider, workspace, label, api_key, encrypted, is_default,
+           last_test_at, last_test_ok, last_test_note, created_at, updated_at)
+        SELECT id, provider, workspace, '默认', api_key, encrypted, 1,
+               last_test_at, last_test_ok, last_test_note, created_at, updated_at
+        FROM dp_credential;
+        DROP TABLE dp_credential;
+        ALTER TABLE dp_credential__new RENAME TO dp_credential;
+        """
+    )
+
+
+async def _migrate_credentials_mysql(store: Store) -> None:
+    """同上，MySQL 版本可以就地 ALTER，不用重建。"""
+
+    async def columns() -> set[str]:
+        rows = await store.query(
+            "SELECT COLUMN_NAME AS name FROM information_schema.columns "
+            "WHERE table_schema = DATABASE() AND table_name = 'dp_credential'"
+        )
+        return {str(r["name"]) for r in rows}
+
+    async def indexes() -> dict[str, bool]:
+        rows = await store.query(
+            "SELECT INDEX_NAME AS name, NON_UNIQUE AS non_unique FROM information_schema.statistics "
+            "WHERE table_schema = DATABASE() AND table_name = 'dp_credential'"
+        )
+        return {str(r["name"]): not int(r["non_unique"]) for r in rows}
+
+    cols = await columns()
+    if "label" not in cols:
+        await store.execute(
+            "ALTER TABLE dp_credential ADD COLUMN label VARCHAR(64) NOT NULL DEFAULT '默认' AFTER workspace"
+        )
+    if "is_default" not in cols:
+        await store.execute(
+            "ALTER TABLE dp_credential ADD COLUMN is_default TINYINT(1) NOT NULL DEFAULT 0 AFTER encrypted"
+        )
+    await store.execute("UPDATE dp_credential SET label = '默认' WHERE label = '' OR label IS NULL")
+
+    idx = await indexes()
+    # 先拆老的唯一键，否则第二把钥匙根本插不进去。
+    if "uq_cred_provider_ws" in idx:
+        await store.execute("ALTER TABLE dp_credential DROP INDEX uq_cred_provider_ws")
+    if "uq_cred_scope" not in idx:
+        await store.execute(
+            "ALTER TABLE dp_credential ADD UNIQUE KEY uq_cred_scope (provider, workspace, label)"
+        )
+    # 每个 (供应商, 工作区) 兜一个默认：没有默认的那些才挑最早的一把。
+    await store.execute(
+        "UPDATE dp_credential SET is_default = 1 WHERE id IN ("
+        "  SELECT id FROM ("
+        "    SELECT id, ROW_NUMBER() OVER (PARTITION BY provider, workspace ORDER BY created_at, id) AS rn"
+        "    FROM dp_credential"
+        "  ) ranked WHERE ranked.rn = 1"
+        ") AND NOT EXISTS ("
+        "  SELECT 1 FROM ("
+        "    SELECT provider, workspace FROM dp_credential WHERE is_default = 1 GROUP BY provider, workspace"
+        "  ) has_default"
+        "  WHERE has_default.provider = dp_credential.provider"
+        "    AND has_default.workspace = dp_credential.workspace"
+        ")"
+    )
+
+
 async def connect_store(dsn: str) -> Store:
     """按连接串建存储。mysql:// 走连接池；其它一律当 SQLite 文件路径。"""
     if dsn.startswith("mysql://") or dsn.startswith("mysql+aiomysql://"):
@@ -436,6 +542,7 @@ async def connect_store(dsn: str) -> Store:
         store = MySQLStore(pool, dsn)
         for statement in [s.strip() for s in SCHEMA_MYSQL.split(";") if s.strip()]:
             await store.execute(statement)
+        await _migrate_credentials_mysql(store)
         return store
     path = dsn.removeprefix("sqlite://")
     return SqliteStore(path)

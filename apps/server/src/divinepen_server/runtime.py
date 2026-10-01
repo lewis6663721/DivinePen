@@ -600,7 +600,7 @@ async def probe_reachability(app: App, provider_code: str) -> dict[str, Any]:
 
 
 async def connectivity_chat(
-    app: App, provider_code: str, model_key: str | None = None
+    app: App, provider_code: str, model_key: str | None = None, label: str | None = None
 ) -> dict[str, Any]:
     """**最小真实请求**：一次文本 chat，max_tokens=1。
 
@@ -617,9 +617,12 @@ async def connectivity_chat(
             "这是默认值：连通性验证请先用零成本探活，或显式打开开关。",
         }
     model_key = model_key or settings.connectivity_model
-    api_key = await app.repo.raw_api_key(provider_code)
+    # 点名 label 就测那一把；不点名就测默认那把 —— 多把钥匙时
+    # "这个供应商通不通"是个没有答案的问题，通的永远是具体某一把。
+    api_key = await app.repo.raw_api_key(provider_code, "", label)
     if not api_key:
-        return {"ok": False, "kind": "live", "note": f"未配置 {provider_code} 的 API Key"}
+        which = f"{provider_code} 的「{label}」" if label else provider_code
+        return {"ok": False, "kind": "live", "note": f"未配置 {which} 的 API Key"}
     base_url = await app.base_url_for(provider_code)
     url = urljoin(base_url.rstrip("/") + "/", "compatible-mode/v1/chat/completions")
     started = time.perf_counter()

@@ -34,7 +34,7 @@ from markupsafe import Markup
 
 from divinepen.agents import discover_plugins
 from divinepen.core.ports import ResolvePolicy
-from divinepen.core.specs import ParamsSchema, TaskStatus
+from divinepen.core.specs import FieldType, ParamsSchema, TaskStatus
 
 from . import runtime as rt
 from .catalog import category_label, category_sort
@@ -229,14 +229,68 @@ _CONTROL_MAP = {
     "textarea": "textarea",
     "int": "number",
     "float": "number",
+    "range": "range",
     "bool": "switch",
     "enum": "select",
     "multi_enum": "checkbox-group",
+    "combo": "combo",
     "url": "url-input",
     "json": "code-editor",
+    "color": "color",
     "artifact": "media-picker",
     "artifact_list": "media-picker-multi",
 }
+
+#: 媒体参数能引用的文件类型。剪辑能力吃视频/音频/字幕，模型能力吃图片/音频。
+_MEDIA_EXT = frozenset(
+    {
+        ".mp4", ".mov", ".mkv", ".webm", ".avi", ".flv", ".m4v",
+        ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus",
+        ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tiff",
+        ".srt", ".ass", ".vtt", ".txt", ".md",
+    }
+)
+_MEDIA_CACHE: dict[str, Any] = {"at": 0.0, "items": []}
+
+
+def media_library(limit: int = 200) -> list[dict[str, str]]:
+    """媒体参数的「产物库」：本机已有的视频/音频/图片/字幕。
+
+    媒体类参数不该逼用户手打路径 —— 但他也不该只能从库里挑（公网 URL、
+    OSS 临时链接都是合法输入）。所以页面给的是"既能挑、也能填"。
+
+    路径按**相对于仓库根**给出，和 ``media.trim`` 之类能力实际接收的写法一致
+    （``var/sample.mp4``），免得用户从这里挑完，能力那边又找不到文件。
+
+    结果缓存 5 秒：渲染一页会问很多次，但它不是需要实时的数据。
+    """
+    import time
+
+    now = time.time()
+    if now - _MEDIA_CACHE["at"] < 5.0 and _MEDIA_CACHE["items"]:
+        return _MEDIA_CACHE["items"][:limit]
+    root = Path(get_settings().root)
+    roots = [get_settings().media_root, root / "var"]
+    found: list[tuple[float, dict[str, str]]] = []
+    for base in roots:
+        if not base.exists():
+            continue
+        for path in base.rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in _MEDIA_EXT:
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            try:
+                rel = str(path.relative_to(root))
+            except ValueError:
+                rel = str(path)
+            found.append((stat.st_mtime, {"name": path.name, "path": rel}))
+    found.sort(key=lambda item: item[0], reverse=True)
+    items = [item[1] for item in found]
+    _MEDIA_CACHE.update({"at": now, "items": items})
+    return items[:limit]
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -255,6 +309,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.filters["money"] = money
     templates.env.globals["control_of"] = control_of
     templates.env.globals["asset"] = asset
+    templates.env.globals["media_library"] = media_library
 
     # ── 公共 helpers ───────────────────────────────────────────
 
@@ -566,7 +621,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         capability = request.query_params.get("capability") or None
         provider = request.query_params.get("provider") or None
         rows = await instance.repo.models(capability=capability, provider=provider)
-        credentials = {c["provider"]: c for c in await instance.repo.credentials()}
+        credentials = await instance.repo.default_credentials()
         providers = {p["code"]: p for p in await instance.repo.providers()}
         grouped: dict[str, list[dict[str, Any]]] = {}
         for row in rows:
@@ -695,7 +750,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def providers_page(request: Request):
         instance = get_app()
         providers = await instance.repo.providers()
-        credentials = {c["provider"]: c for c in await instance.repo.credentials()}
+        credentials = await instance.repo.default_credentials()
         all_models = await instance.repo.models()
         counts: dict[str, int] = {}
         for row in all_models:
@@ -734,7 +789,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         instance = get_app()
         credentials = await instance.repo.credentials()
-        by_provider = {c["provider"]: c for c in credentials}
+        by_provider = await instance.repo.default_credentials()
+        keys_by_provider: dict[str, list[dict[str, Any]]] = {}
+        for key in credentials:
+            keys_by_provider.setdefault(key["provider"], []).append(key)
         providers = await instance.repo.providers()
         model_counts: dict[str, int] = {}
         for row in await instance.repo.models():
@@ -753,10 +811,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 state = "ready"
             else:
                 state = "need-key"
+            keys = keys_by_provider.get(code, [])
+            # 「最近一次」= 这家最新的一条测试记录。多把钥匙时不能只看默认那把 ——
+            # 刚测完的往往正是备用的那一把，只盯默认会让人以为测试没生效。
+            last = max(keys, key=lambda k: k.get("last_test_at") or "", default=None)
             rows.append(
                 {
                     "p": p,
                     "c": c,
+                    "keylist": keys,
+                    "n_keys": len(keys),
+                    "last": last,
                     "configured": configured,
                     "state": state,
                     "models": model_counts.get(code, 0),
@@ -797,24 +862,78 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/credentials/{provider}")
     async def credential_save(
-        request: Request, provider: str, api_key: str = Form(""), workspace: str = Form("")
+        request: Request,
+        provider: str,
+        api_key: str = Form(""),
+        label: str = Form(""),
+        workspace: str = Form(""),
+        make_default: str = Form(""),
     ):
+        """加一把钥匙，或覆盖同名的那个。
+
+        名字留空 = 记成「默认」。这是最常见的情形（一个供应商一把钥匙），
+        不该逼用户先想一个名字出来。
+        """
         instance = get_app()
         if not api_key.strip():
             return RedirectResponse(flash_url("/credentials", "API Key 不能为空", "danger"), 303)
-        await instance.repo.save_credential(provider, api_key, workspace=workspace.strip())
-        note = f"已保存 {provider} 的 API Key"
+        name = label.strip() or "默认"
+        # 没勾选时传 None（"没意见"），而不是 False（"别设"）——
+        # 两者在多把钥匙的语义里不是一回事：第一把钥匙必须自动接管默认，
+        # 否则会出现"配好了却发不出去"的状态。
+        cred_id = await instance.repo.save_credential(
+            provider,
+            api_key,
+            label=name,
+            workspace=workspace.strip(),
+            make_default=True if make_default else None,
+        )
+        row = await instance.repo.credential_by_id(cred_id)
+        note = f"已保存 {provider} 的密钥「{name}」"
+        if row and row.get("is_default"):
+            note += "，并设为默认"
         if instance.box.backend != "fernet":
             note += "（注意：未配置 DIVINEPEN_CREDENTIAL_KEY，当前为明文存储）"
         return RedirectResponse(flash_url("/credentials", note, "bill"), 303)
 
+    @app.post("/credentials/{provider}/default")
+    async def credential_set_default(request: Request, provider: str, cred_id: str = Form("")):
+        instance = get_app()
+        row = await instance.repo.credential_by_id(cred_id)
+        if not row or row["provider"] != provider:
+            return RedirectResponse(flash_url("/credentials", "没有这把密钥", "danger"), 303)
+        await instance.repo.set_default_credential(provider, cred_id)
+        return RedirectResponse(
+            flash_url("/credentials", f"{provider} 的默认密钥已换成「{row['label']}」", "ok"), 303
+        )
+
+    @app.post("/credentials/{provider}/delete")
+    async def credential_delete(request: Request, provider: str, cred_id: str = Form("")):
+        instance = get_app()
+        row = await instance.repo.credential_by_id(cred_id)
+        if not row or row["provider"] != provider:
+            return RedirectResponse(flash_url("/credentials", "没有这把密钥", "danger"), 303)
+        await instance.repo.delete_credential(cred_id)
+        note = f"已删除 {provider} 的密钥「{row['label']}」"
+        if row.get("is_default"):
+            nxt = await instance.repo.credential(provider, row.get("workspace", "") or "")
+            note += f"，默认已顺延给「{nxt['label']}」" if nxt else "，该供应商现在没有可用密钥"
+        return RedirectResponse(flash_url("/credentials", note, "bill"), 303)
+
     @app.post("/credentials/{provider}/probe")
     async def credential_probe(request: Request, provider: str):
+        """零成本探活：查的是**网络**，所以结果记在默认那把钥匙上。
+
+        多把钥匙共用同一个 base_url，"哪把钥匙能连通"这个问题在探活这一层
+        没有意义 —— 真正分得出钥匙差别的是下面的连通性测试。
+        """
         instance = get_app()
         outcome = await rt.probe_reachability(instance, provider)
-        await instance.repo.record_credential_test(
-            provider, bool(outcome.get("ok")), outcome.get("note", "")
-        )
+        default = await instance.repo.credential(provider)
+        if default:
+            await instance.repo.record_credential_test(
+                default["id"], bool(outcome.get("ok")), outcome.get("note", "")
+            )
         return RedirectResponse(
             flash_url(
                 "/credentials", outcome.get("note", ""), "ok" if outcome.get("ok") else "danger"
@@ -823,17 +942,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.post("/credentials/{provider}/test")
-    async def credential_test(request: Request, provider: str, model: str = Form("")):
+    async def credential_test(
+        request: Request, provider: str, cred_id: str = Form(""), model: str = Form("")
+    ):
+        """真实（最小）连通性测试：能点名测哪一把钥匙。
+
+        不点名就测默认那把。结果按 **id** 记 —— 测的既然是那一把，
+        结论就该落在那一把头上。
+        """
         instance = get_app()
-        outcome = await rt.connectivity_chat(instance, provider, model.strip() or None)
-        if not outcome.get("blocked"):
+        row = await instance.repo.credential_by_id(cred_id) if cred_id else None
+        if row is None:
+            row = await instance.repo.credential(provider)
+        outcome = await rt.connectivity_chat(
+            instance, provider, model.strip() or None, row["label"] if row else None
+        )
+        if row and not outcome.get("blocked"):
             await instance.repo.record_credential_test(
-                provider, bool(outcome.get("ok")), outcome.get("note", "")
+                row["id"], bool(outcome.get("ok")), outcome.get("note", "")
             )
+        prefix = f"「{row['label']}」：" if row else ""
         return RedirectResponse(
             flash_url(
                 "/credentials",
-                outcome.get("note", ""),
+                prefix + outcome.get("note", ""),
                 "ok" if outcome.get("ok") else ("bill" if outcome.get("blocked") else "danger"),
             ),
             303,
@@ -1113,7 +1245,7 @@ async def _picker_context(
     model_capability = cap.manifest.model_capability or cap.manifest.id
     specs = await catalog.list_models(capability=model_capability, enabled_only=False)
 
-    creds = {row["provider"]: row for row in await instance.repo.credentials()}
+    creds = await instance.repo.default_credentials()
     provider_rows = {row["code"]: row for row in await instance.repo.providers()}
 
     by_provider: dict[str, list[Any]] = {}
@@ -1240,20 +1372,45 @@ async def _capability_input(
 def _form_values(form: Any, schema: Any) -> dict[str, Any]:
     """表单 → schema 输入值。
 
-    两条必须在这里处理的语义：
+    三条必须在这里处理的语义：
 
     * 空字符串 = 未填 → 丢掉。留空不等于"传空串"，否则必填校验与默认值都会失效。
     * 未勾选的 checkbox **不会**出现在表单里 → 显式补 ``False``。
       否则用户取消勾选一个默认开启的开关（比如 prompt_extend），服务端会
       因为"没收到这个键"而用回默认的 True —— 界面和实际请求就对不上了。
+    * 同名多值（多选框组、媒体多选）按 ``multi_items`` 收成数组。
+      直接 ``dict(form)`` 只留得下最后一个，"选了 16:9 和 1:1"会静默变成只选 1:1。
     """
-    values = {
-        key: _coerce_json(value)
-        for key, value in form.items()
-        if not key.startswith("_") and value != ""
-    }
+    source = form.multi_items() if hasattr(form, "multi_items") else form.items()
+    raw: dict[str, Any] = {}
+    for key, value in source:
+        if key.startswith("_") or value == "":
+            continue
+        if key in raw:
+            prev = raw[key]
+            raw[key] = [*prev, value] if isinstance(prev, list) else [prev, value]
+        else:
+            raw[key] = value
+
+    types = {f.key: f.type for f in schema.fields()}
+    values: dict[str, Any] = {}
+    for key, value in raw.items():
+        ftype = types.get(key)
+        if ftype is FieldType.MULTI_ENUM:
+            values[key] = value if isinstance(value, list) else [value]
+        elif ftype is FieldType.ARTIFACT_LIST:
+            # 多选媒体统一是"一行一个"，文本框、追加、接口回读共用这一种写法。
+            chunks = value if isinstance(value, list) else [value]
+            values[key] = [
+                line.strip() for chunk in chunks for line in str(chunk).splitlines() if line.strip()
+            ]
+        else:
+            if isinstance(value, list):  # 单个参数的重复提交：后写的赢
+                value = value[-1]
+            values[key] = _coerce_json(value)
+
     for field in schema.fields():
-        if field.type.value == "bool" and field.key not in values:
+        if field.type is FieldType.BOOL and field.key not in values:
             values[field.key] = False
     return values
 

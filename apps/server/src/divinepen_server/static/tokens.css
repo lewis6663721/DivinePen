@@ -282,3 +282,26 @@ input:disabled{color:var(--ink-4);cursor:not-allowed}
 .reject b{font:500 11px/1.6 var(--mono);color:var(--danger);text-transform:uppercase;letter-spacing:.08em}
 .reject span{color:var(--ink-2)}
 hr{border:0;border-top:1px solid var(--line-soft);margin:var(--s6) 0}
+
+/* ── 密钥清单（一个供应商可以有多把）───────────────────────────────
+   一把钥匙一行：名字 / 掩码 / 测试状态 / 动作。
+   默认那把用左边一道琥珀色脊线标出来 —— 不靠颜色也能看出"哪把在生效"，
+   但眼睛扫过去时最先看到的应该是它。                                 */
+.keys{display:flex;flex-direction:column;gap:1px;margin:0 0 var(--s4);
+       border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden}
+.keyline{display:grid;grid-template-columns:minmax(90px,1fr) minmax(120px,1.4fr) auto auto;
+         gap:var(--s3);align-items:center;padding:var(--s2) var(--s3);
+         background:var(--surface);border-left:2px solid transparent}
+.keyline[data-default="1"]{border-left-color:var(--bill);background:var(--surface-2)}
+.keyline .kname{display:flex;align-items:center;gap:var(--s2);min-width:0}
+.keyline .kname b{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;
+                  white-space:nowrap;color:var(--ink)}
+.keyline .kval{font-size:11.5px;color:var(--ink-3);overflow:hidden;
+               text-overflow:ellipsis;white-space:nowrap}
+.keyline .kchip{white-space:nowrap}
+.keyline .kacts{display:flex;gap:var(--s2);justify-content:flex-end;white-space:nowrap}
+.keyline .kacts form{display:flex}
+.btn.quiet.danger{color:var(--danger,#e5735f);border-color:rgba(229,115,95,.35)}
+.btn.quiet.danger:hover{color:var(--danger,#e5735f);border-color:var(--danger,#e5735f);background:transparent}
+.btn.quiet{padding:2px 8px;font-size:12px}
+.keyrow .keyname{flex:0 1 42%;min-width:110px}

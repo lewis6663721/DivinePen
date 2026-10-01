@@ -11,7 +11,8 @@
 
 <section>
   <div class="toolbar" style="margin-bottom:var(--s4)">
-    <form method="get" action="/models">
+    <form method="get" action="/models" class="filterset">
+      <span class="flabel">筛选</span>
       <select name="capability" onchange="this.form.submit()">
         <option value="">全部能力分类</option>
         {% for c in categories %}
@@ -24,8 +25,8 @@
         <option value="{{ p.code }}" {% if selected.provider == p.code %}selected{% endif %}>{{ p.name }}</option>
         {% endfor %}
       </select>
-      <input type="text" data-filter="#model-table" placeholder="过滤模型名 / 参数…" style="min-width:220px"/>
-      {% if selected.capability or selected.provider %}<a class="btn ghost" href="/models">清空筛选</a>{% endif %}
+      <input type="text" data-filter="#model-table" placeholder="过滤模型名 / 参数…"/>
+      {% if selected.capability or selected.provider %}<a class="clearf" href="/models" title="清空筛选">✕ 清空</a>{% endif %}
     </form>
     <div class="spacer" style="margin-left:auto"></div>
     <form method="post" action="/catalog/reseed"

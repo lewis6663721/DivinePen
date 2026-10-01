@@ -62,6 +62,75 @@
 </div>
 {%- endmacro %}
 
+{# ── 模型选择器：供应商 → 模型 → **该模型**的参数 ────────────────────
+   任何"涉及模型"的功能模块都套这一个宏，别再各写一套。
+
+   三个刻意的选择：
+   · 供应商只列**这个分类下真有模型**的 —— 否则在「文生视频」里选阿里云会带出
+     36 个模型，其中 32 个在这一屏毫无用处。
+   · 没配 Key 的供应商照列、加标注。隐藏会让人以为不支持；而且没 Key 也能预演。
+   · 两个 select 与参数同在一个 form 里，「切换」按钮带 formmethod=get 回本站，
+     所以**不带 JS 也能用**，且已填的参数不会丢。JS 只负责替用户点这个按钮。 #}
+{% macro model_picker(picker, cap_id) -%}
+{% if not picker or not picker.providers %}
+<div class="alert bill"><b>还没有可选模型</b>
+  <div>分类 <code class="mono">{{ picker.capability if picker else '' }}</code> 下没有任何供应商的模型。
+    去 <a href="/models">模型管理</a> 导入或添加，这一屏才有东西可选。</div></div>
+{% else %}
+<div class="picker">
+  <div class="picker-row">
+    <div class="field">
+      <label class="lbl" for="pick-provider"><span>供应商</span><code class="mono">provider</code></label>
+      <select id="pick-provider" name="provider" data-autoswitch>
+        {% for p in picker.providers %}
+        <option value="{{ p.code }}" {% if picker.provider and p.code == picker.provider.code %}selected{% endif %}>{{ p.name }}{% if not p.has_key %} · 未配 Key{% endif %}{% if p.usable != p.models|length %} · {{ p.usable }}/{{ p.models|length }} 启用{% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label class="lbl" for="pick-model"><span>模型</span><code class="mono">model</code></label>
+      <select id="pick-model" name="model" data-autoswitch>
+        {% for m in picker.models %}
+        <option value="{{ m.key }}" {% if picker.model and m.key == picker.model.key %}selected{% endif %} {% if not m.enabled %}disabled{% endif %}>{{ m.name }}{% if m.capability and m.capability != picker.capability %} · {{ m.capability }}{% endif %}{% if not m.enabled %} · 已停用{% elif not m.verified %} · 参数待核对{% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn" type="submit" data-switch
+            formaction="/capabilities/{{ cap_id }}" formmethod="get">切换</button>
+  </div>
+
+  {% if picker.model %}
+  <div class="picker-meta">
+    {{ chip(picker.model.capability, 'sig') }}
+    {% if picker.model.async %}{{ chip('异步任务 · 提交后轮询', 'bill') }}{% else %}{{ chip('同步返回') }}{% endif %}
+    {% if picker.model.verified %}{{ chip('参数已逐条核对', 'ok') }}{% else %}{{ chip('参数待核对', 'bill') }}{% endif %}
+    {{ chip(picker.model.params_count ~ ' 个参数') }}
+    {% if picker.model.pricing_unit and picker.model.pricing_unit != 'free' %}{{ chip('计费 · ' ~ picker.model.pricing_unit, 'bill') }}{% else %}{{ chip('免费', 'ok') }}{% endif %}
+    {{ chip(picker.model.transport) }}
+    {% if picker.model.billed_keys %}
+    <span class="id">计费参数 {% for k in picker.model.billed_keys %}<code class="mono">{{ k }}</code>{% if not loop.last %} {% endif %}{% endfor %}</span>
+    {% endif %}
+  </div>
+  <p class="hint" style="margin:0">
+    <b style="color:var(--ink-3)">{{ picker.reason }}</b>
+    {%- if picker.model.source_doc %} · 来源 {{ picker.model.source_doc }}{% endif %}
+    {%- if picker.model.doc_url %} · <a href="{{ picker.model.doc_url }}" target="_blank" rel="noreferrer">接口文档</a>{% endif %}
+    · <code class="mono">{{ picker.model.method }} {{ picker.model.path }}</code>
+  </p>
+  {% endif %}
+
+  {% if picker.provider and not picker.provider.has_key %}
+  <div class="alert bill"><b>未配 Key</b>
+    <div><b>{{ picker.provider.name }}</b> 还没有 API Key。预演照常可用（零成本，只看请求体）；
+      真实调用会被拦下。去 <a href="/credentials">配置管理</a> 补上。</div></div>
+  {% endif %}
+  {% for w in picker.warnings %}
+  <div class="alert bill"><b>路由提示</b><div>{{ w }}</div></div>
+  {% endfor %}
+</div>
+{% endif %}
+{%- endmacro %}
+
 {# ── 参数 ↔ 文档 对照表：这一页的核心证据 ─────────────────────────── #}
 {% macro param_table(groups) -%}
 <div class="tablewrap">

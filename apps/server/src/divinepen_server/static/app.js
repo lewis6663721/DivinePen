@@ -28,12 +28,43 @@
   });
 
   // ── 计费确认：让"花钱"必须被多按一次 ────────────────────────
+  // 两种写法都支持：表单级（整张表单只有一个动作）、按钮级（同一张表单里
+  // "预演"和"后台执行"的代价不一样，不能共用一句话）。
   document.querySelectorAll("form[data-confirm]").forEach((form) => {
     form.addEventListener("submit", (ev) => {
       const msg = form.getAttribute("data-confirm");
       if (msg && !window.confirm(msg)) ev.preventDefault();
     });
   });
+  document.querySelectorAll("button[data-confirm],a[data-confirm]").forEach((el) => {
+    el.addEventListener("click", (ev) => {
+      if (!window.confirm(el.getAttribute("data-confirm"))) ev.preventDefault();
+    });
+  });
+
+  // ── 模型选择器：换供应商/模型 = 自动点「切换」────────────────
+  // 参数表单是跟着模型走的（video.t2v 下 wan2.7 有 9 个参数、happyhorse 只有 8 个），
+  // 所以换模型必须回服务端拿那份新表单。这里只是替用户点一下「切换」按钮 ——
+  // 按钮本身带 formmethod=get，所以不带 JS 时这条路一样走得通，参数也不会丢。
+  document.querySelectorAll("[data-autoswitch]").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const btn = sel.form && sel.form.querySelector("[data-switch]");
+      if (!btn) return;
+      try {
+        sessionStorage.setItem("dp:scroll", String(window.scrollY));
+      } catch {}
+      if (sel.form.requestSubmit) sel.form.requestSubmit(btn);
+      else btn.click();
+    });
+  });
+  // 切换会整页重渲染，把滚动位置带过去，省得每次都跳回页首。
+  try {
+    const y = sessionStorage.getItem("dp:scroll");
+    if (y !== null) {
+      sessionStorage.removeItem("dp:scroll");
+      window.scrollTo(0, Number(y) || 0);
+    }
+  } catch {}
 
   // ── 表格过滤（模型列表那种长表）────────────────────────────
   document.querySelectorAll("[data-filter]").forEach((input) => {

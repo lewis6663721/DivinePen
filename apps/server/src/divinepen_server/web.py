@@ -33,7 +33,8 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
 from divinepen.agents import discover_plugins
-from divinepen.core.specs import TaskStatus
+from divinepen.core.ports import ResolvePolicy
+from divinepen.core.specs import ParamsSchema, TaskStatus
 
 from . import runtime as rt
 from .catalog import category_label, category_sort
@@ -391,16 +392,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 counts=await nav_counts(instance),
             )
         cap = instance.registry.get(capability_id)
+        raw = {
+            key: value
+            for key, value in request.query_params.items()
+            if not key.startswith("_")
+        }
+        # 只带路由键的 URL = "打开这一页"，不是"提交一次表单"。
+        picker, values, _ = await _capability_input(
+            instance, cap, raw, submitted=any(k not in ROUTE_KEYS for k in raw)
+        )
         info = cap.info()
+        if picker is not None:
+            info["form"] = picker["form"]
         return render(
             request,
             "capability.html",
             title=info["name"],
             cap=info,
+            picker=picker,
             missing=await cap.check_ready(instance.context()),
             source=instance.registry.source_of(capability_id),
             result=None,
-            values={},
+            values=values,
             counts=await nav_counts(instance),
         )
 
@@ -416,14 +429,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail=f"未注册的能力：{capability_id}",
             )
         cap = instance.registry.get(capability_id)
-        info = cap.info()
         form = await request.form()
         raw_values = {k: v for k, v in form.items() if not k.startswith("_")}
-        values = _form_values(form, cap.form_schema())
+        picker, values, payload = await _capability_input(
+            instance, cap, raw_values, submitted=True
+        )
+        info = cap.info()
+        if picker is not None:
+            info["form"] = picker["form"]
         result: dict[str, Any]
         try:
             run = await cap.invoke(
-                values, instance.context(dry_run=True, extra={"registry": instance.registry})
+                payload, instance.context(dry_run=True, extra={"registry": instance.registry})
             )
             result = {
                 "kind": "ok",
@@ -443,10 +460,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "capability.html",
             title=info["name"],
             cap=info,
+            picker=picker,
             missing=await cap.check_ready(instance.context()),
             source=instance.registry.source_of(capability_id),
             result=result,
-            values=raw_values,
+            values=values,
             counts=await nav_counts(instance),
         )
 
@@ -895,13 +913,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 flash_url(f"/capabilities/{capability_id}",
                           "该能力会产生费用，需勾选确认后再提交", "bill"), 303)
         form = await request.form()
-        values = {k: _coerce_json(v) for k, v in form.items() if not k.startswith("_") and v != ""}
+        raw = {k: v for k, v in form.items() if not k.startswith("_") and v != ""}
+        picker, _, payload = await _capability_input(instance, cap, raw, submitted=True)
         task_id = await instance.repo.create_task(
-            {"capability_id": capability_id, "provider": cap.manifest.model_capability or "",
-             "model": "", "status": "PENDING", "payload": values,
+            {"capability_id": capability_id,
+             "provider": (picker or {}).get("provider", {}).get("code", "") if picker
+             else (cap.manifest.model_capability or ""),
+             "model": (picker or {}).get("model", {}).get("key", "") if picker else "",
+             "status": "PENDING", "payload": payload,
              "user_id": getattr(request.state, "user", None) and request.state.user["id"]}
         )
-        _spawn(_run_background(instance, task_id, capability_id, values, billed_allowed=confirm == "1"))
+        _spawn(_run_background(instance, task_id, capability_id, payload, billed_allowed=confirm == "1"))
         return RedirectResponse(flash_url(f"/tasks/{task_id}", "已提交后台执行，去任务中心看进度"), 303)
 
     @app.post("/tasks/{task_id}/resume")
@@ -949,6 +971,180 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     return app
+
+
+# ── 模型驱动的三段式：供应商 → 模型 → **该模型**的参数 ──────────────
+
+#: 路由字段，不是模型参数。别让它们混进 params 里发给供应商。
+ROUTE_KEYS = frozenset({"provider", "model", "policy"})
+
+
+def _spec_brief(model: Any) -> dict[str, Any]:
+    """把一个 ModelSpec 压成模板够用的一小块。"""
+    return {
+        "key": model.key,
+        "name": model.display_name,
+        "capability": model.capability,
+        "enabled": model.enabled,
+        "verified": bool(model.meta.get("verified", True)),
+        "async": model.is_async,
+        "transport": model.meta.get("transport", "http"),
+        "pricing_unit": model.pricing.unit.value,
+        "params_count": len(model.params.fields()),
+        "billed_keys": model.params.billed_keys(),
+        "doc_url": model.doc_url,
+        "source_doc": model.meta.get("source_doc", ""),
+        "path": model.api.path,
+        "method": model.api.method,
+        "notes": model.notes,
+        "pricing": model.pricing.model_dump(mode="json"),
+    }
+
+
+async def _picker_context(
+    instance: rt.App,
+    cap: Any,
+    *,
+    provider: str | None = None,
+    model_key: str | None = None,
+) -> dict[str, Any]:
+    """模型驱动能力的「供应商 / 模型 / 参数表单」上下文。
+
+    三条口径，写在页面上也写在这里，免得下次再讨论一遍：
+
+    * 供应商下拉**只列该能力下有模型的**。否则在「文生视频」里选阿里云会带出 36 个
+      模型，其中 32 个在这一屏毫无用处 —— 用户得先自己挑出那 4 个。
+    * 未配 API Key 的供应商**照列、加标注**，不隐藏。隐藏会让人以为这功能不支持；
+      而且没 Key 也能预演（看请求体是零成本的）。
+    * 默认选中的模型走 ``resolve(priority)`` 的同一口径 —— 页面显示的模型和真实
+      调用会用的模型，不许有两个答案。
+    """
+    catalog = instance.catalog
+    model_capability = cap.manifest.model_capability or cap.manifest.id
+    specs = await catalog.list_models(capability=model_capability, enabled_only=False)
+
+    creds = {row["provider"]: row for row in await instance.repo.credentials()}
+    provider_rows = {row["code"]: row for row in await instance.repo.providers()}
+
+    by_provider: dict[str, list[Any]] = {}
+    for spec in specs:  # dp_model 按 (capability, priority, key) 出库，顺序即优先级
+        by_provider.setdefault(spec.provider, []).append(spec)
+
+    providers: list[dict[str, Any]] = []
+    for code, models in by_provider.items():
+        row = provider_rows.get(code) or {}
+        providers.append(
+            {
+                "code": code,
+                "name": row.get("name") or code,
+                "region": row.get("region") or "",
+                "base_url": row.get("base_url") or "",
+                "has_key": bool((creds.get(code) or {}).get("has_key")),
+                "provider_enabled": bool(row.get("enabled", 1)),
+                "usable": sum(1 for m in models if m.enabled),
+                "models": models,
+            }
+        )
+    # 配了 Key 的排前面：那是用户真会用的那几家。
+    providers.sort(key=lambda p: (not p["has_key"], not p["provider_enabled"], p["code"]))
+
+    warnings: list[str] = []
+    chosen = next((p for p in providers if p["code"] == provider), None)
+    if provider and chosen is None:
+        warnings.append(f"供应商 {provider} 在 {model_capability} 下没有模型，已改用默认。")
+    if chosen is None:
+        chosen = next((p for p in providers if p["has_key"] and p["usable"]), None) or (
+            providers[0] if providers else None
+        )
+
+    candidates = chosen["models"] if chosen else []
+    model = next((m for m in candidates if m.key == model_key and m.enabled), None)
+    if model is None and model_key:
+        model = next((m for m in candidates if m.key == model_key), None)
+        if model is None:
+            warnings.append(f"模型 {model_key} 不属于 {model_capability}，已改用默认。")
+
+    if model is None and chosen is not None:
+        # 默认模型不在这里"再挑一次"：直接问后端同一套 resolve。
+        # 页面显示的模型和真实调用会用的模型，只能有一个答案。
+        try:
+            resolved = await catalog.resolve(
+                model_capability, provider=chosen["code"], policy=ResolvePolicy.PRIORITY
+            )
+            model = next((m for m in candidates if m.key == resolved.model.key), None)
+        except Exception:  # 目录里没有可用模型是正常状态，不是异常
+            model = None
+        if model is None:  # 全都停用时也得让人看见它们，而不是空白
+            model = next((m for m in candidates if m.enabled), None) or (
+                candidates[0] if candidates else None
+            )
+
+    if model is None:
+        reason = "该能力还没有可用模型"
+    elif model_key and model.key == model_key:
+        reason = "调用方显式指定的模型"
+    else:
+        reason = f"{chosen['name']} 下按目录优先级选中的 {model_capability} 模型"
+
+    return {
+        "capability": model_capability,
+        "providers": [
+            {**p, "models": [_spec_brief(m) for m in p["models"]]} for p in providers
+        ],
+        "provider": chosen,
+        "models": [_spec_brief(m) for m in candidates],
+        "model": _spec_brief(model) if model else None,
+        "reason": reason,
+        "warnings": warnings,
+        # 表单的真相源：**选中的那个模型**的参数 schema，不是能力的 Input。
+        "form": model.params.model_dump(mode="json") if model else {"groups": []},
+        "fields": model.params.fields() if model else [],
+        "schema": model.params if model else ParamsSchema(),
+    }
+
+
+async def _capability_input(
+    instance: rt.App,
+    cap: Any,
+    raw: dict[str, Any],
+    *,
+    submitted: bool,
+) -> tuple[dict[str, Any] | None, dict[str, Any], dict[str, Any]]:
+    """一次提交（查询串或表单）→ ``(picker, 回填值, invoke 输入)``。
+
+    模型驱动能力在这里被拆成两段：页面上选的是**模型**，能力真正要的是
+    ``params`` 那一袋点号路径参数 —— 拆错了，"页面参数 ↔ 接口参数一一对应"
+    这句话就断了。
+
+    ``submitted`` 决定要不要补布尔值。浏览器**不提交未勾选的复选框**，所以
+    "缺席"只在真提交时才等于"关"；只是打开页面（``?provider=..&model=..``）
+    就补一堆 False 的话，模型自己的默认值会被无声吃掉 —— 比如 happyhorse 的
+    ``parameters.watermark`` 默认开，一进页面却显示关着。
+    """
+    if not cap.model_driven:
+        # 普通能力：表单就是能力的 Input。预演和真实执行共用同一份归一化，
+        # 否则"页面上看到的 body"和"真发出去的 body"又会分叉。
+        return None, dict(raw), _form_values(raw, cap.form_schema())
+
+    picker = await _picker_context(
+        instance,
+        cap,
+        provider=raw.get("provider") or None,
+        model_key=raw.get("model") or None,
+    )
+    values = _form_values(raw, picker["schema"]) if submitted else {}
+    values = {k: v for k, v in values.items() if k not in ROUTE_KEYS}
+    model = picker["model"]
+    return (
+        picker,
+        values,
+        {
+            "provider": (picker["provider"] or {}).get("code"),
+            "model": (model or {}).get("key"),
+            "policy": "explicit" if model else "priority",
+            "params": values,
+        },
+    )
 
 
 def _form_values(form: Any, schema: Any) -> dict[str, Any]:

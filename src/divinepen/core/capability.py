@@ -146,6 +146,14 @@ class Capability(ABC):
     Input: ClassVar[type[BaseModel]]
     Output: ClassVar[type[BaseModel]]
 
+    #: True 表示这个能力的**参数表单来自所选模型**，而不是来自 ``Input``。
+    #:
+    #: 模型绑定能力（``media.t2v`` / ``llm.chat`` …）的 Input 只有三个外壳字段
+    #: （params / provider / model），真正要填的参数在数据库 ``dp_model.params`` 里，
+    #: 且**随模型而变**（同为 video.t2v，wan2.7-t2v 有 9 个字段，happyhorse 只有 8 个）。
+    #: 页面据此换成「供应商 → 模型 → 该模型的参数表单」三段式。
+    model_driven: ClassVar[bool] = False
+
     # ── 自描述（页面表单直接用）──────────────────────────────────
 
     @classmethod
@@ -162,6 +170,7 @@ class Capability(ABC):
             "category": m.category.value,
             "description": m.description,
             "model_capability": m.model_capability,
+            "model_driven": cls.model_driven,
             "agent_mode": m.agent_mode.value if m.agent_mode else None,
             "requires": [r.value for r in m.requires],
             "cost": m.cost.model_dump(mode="json"),

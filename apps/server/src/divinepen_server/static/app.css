@@ -116,6 +116,23 @@ input[type=password],input[type=url]{
 input[type=password]:focus,input[type=url]:focus{border-color:var(--signal);box-shadow:0 0 0 3px var(--signal-dim)}
 textarea{resize:vertical;min-height:78px;font-family:var(--mono);font-size:12.5px}
 label.check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2);cursor:pointer}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s3);margin-top:var(--s2)}
+
+/* ── 模型选择器：供应商 → 模型 → 该模型的参数 ─────────────────── */
+/* 挤在最上面而不是埋在参数里：它决定了下面那张表长什么样。 */
+.picker{
+  display:grid;gap:var(--s3);margin-bottom:var(--s5);padding:var(--s4);
+  background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);
+}
+.picker-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) auto;gap:var(--s3);align-items:end}
+.picker-row .field{margin-bottom:0}
+.picker-row .field select{width:100%}
+.picker-row .btn{height:36px;white-space:nowrap}
+.picker-meta{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}
+.picker-meta .id{font:500 11.5px/1.5 var(--mono);color:var(--ink-4)}
+.picker-meta .id code{color:var(--ink-3)}
+.picker .hint{margin:0}
+@media (max-width:900px){.picker-row{grid-template-columns:1fr}.picker-row .btn{justify-self:start}}
 label.check input{width:auto;accent-color:var(--signal)}
 .field.inline{grid-template-columns:1fr auto;align-items:end}
 .field-err{color:var(--danger);font-size:12px}

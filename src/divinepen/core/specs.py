@@ -246,6 +246,16 @@ def _as_bool(raw: Any) -> bool:
 def _field_from(name: str, info: Any, extra: dict[str, Any]) -> FieldSpec:
     annotation = info.annotation
     ftype, options = _infer_type(annotation)
+    # 显式声明了 options 的字段一律长成下拉，哪怕类型是裸 str。
+    # 否则 `policy: str = Field(json_schema_extra={"options": [...]})` 只能手打，
+    # 界面上就成了"文档说是三选一，控件却让你自由发挥"。
+    declared = _declared_options(extra.get("options"))
+    if declared and ftype in (FieldType.TEXT, FieldType.URL):
+        ftype, options = FieldType.ENUM, declared
+    elif declared and ftype is FieldType.JSON and get_origin(annotation) in (list, tuple):
+        # list[str] 会被推断成 JSON（"自己填数组"）；一旦声明了选项，
+        # 它就是一个多选框组，而不是让人手打 JSON。
+        ftype, options = FieldType.MULTI_ENUM, declared
     return FieldSpec(
         key=str(extra.get("key") or name),
         label=str(extra.get("label") or name),
@@ -263,6 +273,28 @@ def _field_from(name: str, info: Any, extra: dict[str, Any]) -> FieldSpec:
         billed=bool(extra.get("billed", False)),
         advanced=bool(extra.get("advanced", False)),
     )
+
+
+def _declared_options(raw: Any) -> list[Option]:
+    """``json_schema_extra["options"]`` → ``list[Option]``。
+
+    容忍三种写法：``"a"`` / ``{"label": …, "value": …}`` / ``("显示名", "值")``，
+    因为这两个字在不同人的手里写法不一样，不该因为写法而丢掉选项。
+    """
+    if not raw:
+        return []
+    out: list[Option] = []
+    for item in raw:
+        if isinstance(item, Option):
+            out.append(item)
+        elif isinstance(item, dict):
+            value = str(item.get("value", item.get("label", "")))
+            out.append(Option(label=str(item.get("label", value)), value=value))
+        elif isinstance(item, (tuple, list)) and len(item) == 2:
+            out.append(Option(label=str(item[0]), value=str(item[1])))
+        else:
+            out.append(Option(label=str(item), value=str(item)))
+    return [o for o in out if o.value]
 
 
 def _infer_type(annotation: Any) -> tuple[FieldType, list[Option]]:

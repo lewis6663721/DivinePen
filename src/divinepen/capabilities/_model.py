@@ -38,6 +38,11 @@ class ModelCallInput(BaseModel):
         description="点号路径参数，与所选模型的接口文档逐字对应，如 parameters.duration。",
         json_schema_extra={"label": "参数", "group": "params", "group_label": "模型参数"},
     )
+    provider: str | None = Field(
+        default=None,
+        description="供应商 code（如 aliyun-bailian）。与 model 一起用可唯一定位一个模型。",
+        json_schema_extra={"label": "供应商", "group": "route", "group_label": "路由"},
+    )
     model: str | None = Field(
         default=None,
         description="指定模型 key（如 wan2.7-t2v-2026-06-12）；不填则按策略自动选。",
@@ -70,6 +75,8 @@ class ModelBackedCapability(Capability):
     manifest: ClassVar[CapabilityManifest]
     Input = ModelCallInput
     Output = ModelCallOutput
+    #: 参数表单来自所选模型的 ``dp_model.params``，不是来自 ``Input``。见基类同名量。
+    model_driven: ClassVar[bool] = True
 
     # ── plan：只组装，不发送 ─────────────────────────────────────
 
@@ -214,6 +221,7 @@ class ModelBackedCapability(Capability):
         policy = ResolvePolicy.EXPLICIT if explicit else _policy(inputs.policy)
         resolved = await ctx.catalog.resolve(
             self.manifest.model_capability or self.manifest.id,
+            provider=inputs.provider,
             model_key=explicit or inputs.model,
             policy=policy,
         )

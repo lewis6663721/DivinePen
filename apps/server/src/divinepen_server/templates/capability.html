@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import chip, param_field, param_table, empty %}
+{% from "_macros.html" import chip, param_field, param_table, model_picker, empty %}
 
 {% block body %}
 <div class="page-head">
@@ -49,11 +49,17 @@
 <section class="grid side-main">
   <div class="panel">
     <div class="panel-head">
-      <h3>参数</h3>
+      <h3>{{ '供应商 · 模型 · 参数' if cap.model_driven else '参数' }}</h3>
+      {% if cap.model_driven %}
+      <span class="sub">参数来自<b>选中的那个模型</b>（<code class="mono">dp_model.params</code>），
+        换模型就是另一份参数表 —— 所以先选模型，再填参数</span>
+      {% else %}
       <span class="sub">由能力的 Input 模型派生，禁止手写 JSON Schema</span>
+      {% endif %}
     </div>
     <div class="panel-body">
       <form method="post" action="/capabilities/{{ cap.id }}/dry-run">
+        {% if cap.model_driven %}{{ model_picker(picker, cap.id) }}{% endif %}
         {% for g in cap.form.groups %}
           {% if g.fields %}
           <div class="sec-label" style="margin:0 0 var(--s3)"><b>{{ g.label }}</b> <code class="mono" style="text-transform:none">{{ g.key }}</code>
@@ -63,15 +69,19 @@
           {% endif %}
         {% endfor %}
         {% if not cap.form.groups %}
-          <p style="color:var(--ink-3);font-size:13px;margin:0 0 var(--s5)">该能力不需要参数。</p>
+          <p style="color:var(--ink-3);font-size:13px;margin:0 0 var(--s5)">
+            {{ '选中的模型还没登记参数。' if cap.model_driven else '该能力不需要参数。' }}
+          </p>
         {% endif %}
-        <button class="btn primary" type="submit" data-confirm="这一步只是预演：不联网、不扣费。继续？">预演请求</button>
-        <button class="btn" type="submit" formaction="/capabilities/{{ cap.id }}/run"
-                data-confirm="提交后台执行：pipeline 一路跑完，interactive 会在闸口停下等你。继续？">后台执行</button>
-        {% if cap.cost and cap.cost.unit and cap.cost.unit != 'free' %}
-        <label class="check"><input type="checkbox" name="confirm" value="1"/> 我确认这次调用会产生费用</label>
-        {% endif %}
-        <span class="hint" style="margin-left:var(--s3)">预演零成本；后台执行去任务中心看进度</span>
+        <div class="actions">
+          <button class="btn primary" type="submit" data-confirm="这一步只是预演：不联网、不扣费。继续？">预演请求</button>
+          <button class="btn" type="submit" formaction="/capabilities/{{ cap.id }}/run"
+                  data-confirm="提交后台执行：pipeline 一路跑完，interactive 会在闸口停下等你。继续？">后台执行</button>
+          {% if cap.cost and cap.cost.unit and cap.cost.unit != 'free' %}
+          <label class="check"><input type="checkbox" name="confirm" value="1"/> 我确认这次调用会产生费用</label>
+          {% endif %}
+          <span class="hint">预演零成本；后台执行去任务中心看进度</span>
+        </div>
       </form>
     </div>
   </div>
@@ -85,6 +95,11 @@
           <dt>分类</dt><dd>{{ cap.category }}</dd>
           <dt>状态</dt><dd>{{ chip(cap.status, 'ok' if cap.status == 'stable' else 'bill') }}</dd>
           <dt>绑定模型</dt><dd>{{ cap.model_capability or '不绑模型（纯本地能力）' }}</dd>
+          {% if picker %}
+          <dt>供应商</dt><dd>{{ picker.provider.name if picker.provider else '—' }}
+            {% if picker.provider and not picker.provider.has_key %}{{ chip('未配 Key', 'bill') }}{% else %}{{ chip('已配 Key', 'ok') }}{% endif %}</dd>
+          <dt>当前模型</dt><dd>{% if picker.model %}<code class="mono">{{ picker.model.key }}</code>{% else %}—{% endif %}</dd>
+          {% endif %}
           <dt>标签</dt><dd>{% for t in cap.tags %}{{ chip(t) }} {% else %}—{% endfor %}</dd>
         </dl>
       </div>
@@ -153,7 +168,9 @@
 {% endif %}
 
 <section>
-  <div class="sec-label" style="margin-bottom:var(--s3)"><b>参数 ↔ 接口文档</b> · 页面控件与文档参数一一对应的凭据</div>
+  <div class="sec-label" style="margin-bottom:var(--s3)"><b>参数 ↔ 接口文档</b> ·
+    页面控件与文档参数一一对应的凭据
+    {% if picker and picker.model %}· 当前是 <code class="mono" style="text-transform:none">{{ picker.model.key }}</code> 的 {{ picker.model.params_count }} 个参数{% endif %}</div>
   {{ param_table(cap.form.groups) }}
 </section>
 {% endblock %}

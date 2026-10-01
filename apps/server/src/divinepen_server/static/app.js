@@ -95,10 +95,15 @@
   });
 
   // ── 目录树折叠记忆（记在 localStorage，跨页面保留）─────────
+  // 没记录过就保留服务端给的状态（侧栏＝当前分组默认展开）；
+  // 记录过就一律听用户的，哪怕他手动收起了当前分组
+  // ——那是他的选择，标题行的高亮会告诉他"你现在在这儿"。
   document.querySelectorAll("details[data-remember]").forEach((el) => {
     const key = "dp:" + el.getAttribute("data-remember");
     try {
-      if (localStorage.getItem(key) === "1") el.open = true;
+      const stored = localStorage.getItem(key);
+      if (stored === "1") el.open = true;
+      else if (stored === "0") el.open = false;
     } catch {}
     el.addEventListener("toggle", () => {
       try {

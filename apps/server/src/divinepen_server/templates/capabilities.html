@@ -24,55 +24,113 @@
 </a>
 {%- endmacro %}
 
+{% macro agent_groups(items) -%}
+  {% for mode, mlabel in [
+      ('pipeline', 'pipeline · 固定流程：只给输入，后台异步执行，完事返回最终结果'),
+      ('interactive', 'interactive · 可介入工作流：每一步之间允许人工确认 / 改参（漫剧制作这类）'),
+      ('react', 'react · 推理型：基于 agentscope 的 ReAct 循环（LLM 推理 / 记忆 / 上下文管理）')
+  ] %}
+    {% set sub = items | selectattr('agent_mode', 'equalto', mode) | list %}
+    {% if sub %}
+    <div class="sec-label" style="margin:0 0 var(--s3);text-transform:none;letter-spacing:.03em">
+      <b style="color:var(--signal)">{{ mlabel }}</b>
+    </div>
+    <div class="caps" style="margin-bottom:var(--s5)">
+      {% for c in sub %}{{ cap_card(c) }}{% endfor %}
+    </div>
+    {% endif %}
+  {% endfor %}
+  {% set nomode = items | selectattr('agent_mode', 'equalto', None) | list %}
+  {% if nomode %}<div class="caps">{% for c in nomode %}{{ cap_card(c) }}{% endfor %}</div>{% endif %}
+{%- endmacro %}
+
+{% macro zone_tabs(zones, current_key) -%}
+{# 二级页顶部的区域切换：进错区了不用退回一级页再点一次。 #}
+<nav class="ztabs">
+  {% for z in zones %}
+  <a href="/capabilities?zone={{ z.key }}" {% if z.key == current_key %}aria-current="page"{% endif %}>
+    <span class="glyph">{{ z.glyph }}</span>{{ z.label }}<span class="n">{{ z.total }}</span>
+  </a>
+  {% endfor %}
+</nav>
+{%- endmacro %}
+
 {% block body %}
+
+{% if not zone %}
+{# ── 一级：只回答"有哪几个区、各区多少个"────────────────────── #}
 <div class="page-head">
   <h1>能力目录</h1>
-  <p>目录按<b>靠什么干</b>分成三区，而不是按功能：<b>AI 工具包</b>必须调模型 API；
-     <b>剪辑</b>是硬代码（主要是 ffmpeg），零成本；<b>智能体</b>是插件装上来的业务能力，
-     再按运行模式分 react / pipeline / interactive 三种。</p>
+  <p>目录按<b>靠什么干</b>分成三区，而不是按功能。<b>AI 工具包</b>必须调模型 API；
+     <b>剪辑</b>是硬代码（主要是 ffmpeg），零成本；<b>智能体</b>是插件装上来的业务能力。
+     点一个区进去看具体能力。</p>
 </div>
 
-{% set kinds = [
-  ("toolkit", "AI 工具包", "必须调用大模型能力才能完成，一般对接供应商 API。参数 schema 来自接口文档，dry-run 免费、真实调用走三道闸。"),
-  ("editing", "剪辑", "硬代码实现，大部分基于 ffmpeg：拼接、裁剪、画中画、字幕烧录、音轨分离。本地执行、零成本、可真实跑。"),
-  ("agent", "智能体", "以插件形式安装的业务能力。react=基于 agentscope 的推理循环；pipeline=流程写死、后台异步跑完返回结果；interactive=workflow 但每步可人工介入。")
-] %}
-
-{% for key, label, desc in kinds %}
-<section>
-  <div class="sec-label" style="margin-bottom:var(--s4)">
-    <b>{{ loop.index }} · {{ label }}</b> · {{ by_kind[key]|length }} 个 —— {{ desc }}
-  </div>
-
-  {% if key == 'agent' %}
-    {% for mode, mlabel in [
-        ('pipeline', 'pipeline · 固定流程：只给输入，后台异步执行，完事返回最终结果'),
-        ('interactive', 'interactive · 可介入工作流：每一步之间允许人工确认 / 改参（漫剧制作这类）'),
-        ('react', 'react · 推理型：基于 agentscope 的 ReAct 循环（LLM 推理 / 记忆 / 上下文管理）')
-    ] %}
-      {% set items = by_kind[key] | selectattr('agent_mode', 'equalto', mode) | list %}
-      {% if items %}
-      <div class="sec-label" style="margin:0 0 var(--s3);text-transform:none;letter-spacing:.03em">
-        <b style="color:var(--signal)">{{ mlabel }}</b>
+<div class="zones">
+  {% for z in zones %}
+  <a class="zone" href="/capabilities?zone={{ z.key }}">
+    <span class="glyph">{{ z.glyph }}</span>
+    <div class="zbody">
+      <div class="ztop">
+        <h3>{{ z.label }}</h3>
+        <span class="n">{{ z.total }}</span>
       </div>
-      <div class="caps" style="margin-bottom:var(--s5)">
-        {% for c in items %}{{ cap_card(c) }}{% endfor %}
+      <p class="tagline">{{ z.tagline }}</p>
+      <p class="desc">{{ z.desc }}</p>
+      <div class="foot">
+        {% if z.total == 0 %}
+          {{ chip('还没装任何能力') }}
+        {% elif z.missing %}
+          {{ chip(z.ready ~ '/' ~ z.total ~ ' 就绪', 'bill') }}
+          {# 缺什么就写什么：八个能力都缺同一把 Key 时，写八遍不如写一遍。 #}
+          {% for reason, n in z.missing_reasons.items() %}
+            {{ chip(reason ~ (' ×' ~ n if n > 1 else ''), 'danger') }}
+          {% endfor %}
+        {% else %}
+          {{ chip('全部就绪', 'ok') }}
+        {% endif %}
+        {% if z.model_kinds %}{{ chip(z.model_kinds ~ ' 个模型分类') }}{% endif %}
+        {% if z.key == 'agent' %}
+          {% for m in ('pipeline', 'interactive', 'react') %}
+            {% if z.modes[m] %}{{ chip(m ~ ' ' ~ z.modes[m], 'sig') }}{% endif %}
+          {% endfor %}
+        {% endif %}
       </div>
+      {% if z.sample %}
+      <p class="sample">{{ z.sample | join(' · ') }}{% if z.total > z.sample|length %} 等 {{ z.total }} 个{% endif %}</p>
       {% endif %}
-    {% endfor %}
-    {% set nomode = by_kind[key] | selectattr('agent_mode', 'equalto', None) | list %}
-    {% if nomode %}
-    <div class="caps">{% for c in nomode %}{{ cap_card(c) }}{% endfor %}</div>
-    {% endif %}
-    {% if not by_kind[key] %}
+    </div>
+    <span class="arrow">→</span>
+  </a>
+  {% endfor %}
+</div>
+
+{% else %}
+{# ── 二级：这一区的能力 ─────────────────────────────────────── #}
+<div class="page-head">
+  <p class="crumbs"><a href="/capabilities">← 全部区域</a></p>
+  <h1><span class="glyph" style="color:var(--signal)">{{ zone.glyph }}</span> {{ zone.label }}
+    <span class="n">{{ zone.total }}</span></h1>
+  <p>{{ zone.desc }}</p>
+</div>
+
+{{ zone_tabs(zones, zone.key) }}
+
+<section>
+  {% if zone.key == 'agent' %}
+    {% if by_kind[zone.key] %}
+      {{ agent_groups(by_kind[zone.key]) }}
+    {% else %}
       {{ empty('还没有安装任何智能体', '智能体是独立发行的插件：pip install 一个 divinepen-agent-* 包，重启服务即被发现。react 模式需要额外安装 agentscope。') }}
     {% endif %}
   {% else %}
-    <div class="caps">
-      {% for c in by_kind[key] %}{{ cap_card(c) }}{% endfor %}
-    </div>
-    {% if not by_kind[key] %}{{ empty('这一区还是空的', '暂无该类能力。') }}{% endif %}
+    {% if by_kind[zone.key] %}
+      <div class="caps">{% for c in by_kind[zone.key] %}{{ cap_card(c) }}{% endfor %}</div>
+    {% else %}
+      {{ empty('这一区还是空的', '暂无该类能力。') }}
+    {% endif %}
   {% endif %}
 </section>
-{% endfor %}
+{% endif %}
+
 {% endblock %}

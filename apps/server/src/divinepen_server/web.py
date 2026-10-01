@@ -73,6 +73,54 @@ NAV: list[tuple[str, list[tuple[str, str, str]]]] = [
     ),
 ]
 
+#: 一级目录（三大分区）的门面。名称、一句话定位、说明只写在这里一次 ——
+#: 一级页的卡片、二级页的标题、二级页的页签全引用它，改文案不用满仓库找。
+KIND_META: dict[str, dict[str, str]] = {
+    "toolkit": {
+        "label": "AI 工具包",
+        "glyph": "◈",
+        "tagline": "必须调模型 API 才能完成",
+        "desc": "文生图 / 文生视频 / 对话 / 语音……参数 schema 取自接口文档，逐字对应。"
+        "预演零成本（只看请求体），真实调用走三道闸。",
+    },
+    "editing": {
+        "label": "剪辑",
+        "glyph": "▤",
+        "tagline": "硬代码，主要是 ffmpeg",
+        "desc": "拼接、裁剪、画中画、字幕烧录、音轨分离。本地执行、零成本、可以真的跑出文件。",
+    },
+    "agent": {
+        "label": "智能体",
+        "glyph": "◉",
+        "tagline": "以插件形式安装的业务能力",
+        "desc": "pipeline = 流程写死、后台异步跑完返回结果；interactive = 每步之间允许人工介入；"
+        "react = 基于 agentscope 的推理循环。",
+    },
+}
+
+def _short_reason(text: str) -> str:
+    """把「未配置供应商 video.t2v 的 API Key」压成「未配 API Key」。
+
+    一级页只回答"缺的是哪一类东西"。八个能力各写一条 API Key 提示，在一张卡片上
+    全是噪音；真要修哪一个，二级页的能力卡片上写着呢。
+    """
+    low = text.lower()
+    if "api key" in low:
+        return "未配 API Key"
+    if "libass" in low or "ffmpeg" in low:
+        return "ffmpeg 缺 libass"
+    if "agentscope" in low:
+        return "缺 agentscope"
+    return text
+
+
+def _tally(items: Any) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for item in items:
+        out[item] = out.get(item, 0) + 1
+    return dict(sorted(out.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
 _JSON_TOKEN = re.compile(
     r'(?P<key>"(?:[^"\\]|\\.)*")(?P<colon>\s*:)|'
@@ -229,10 +277,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "flash_msg": None,
         }
 
+    def nav_group_of(path: str) -> str | None:
+        """当前页属于侧栏哪一个分组 —— 那个分组要自动展开、并高亮标题行。"""
+        for group, items in NAV:
+            for href, _label, _key in items:
+                if path == href or (href != "/" and path.startswith(href + "/")):
+                    return group
+        return None
+
     def ctx(request: Request, **extra: Any) -> dict[str, Any]:
         base = {
             "request": request,
             "nav": NAV,
+            "nav_group": nav_group_of(request.url.path),
             "path": request.url.path,
             "msg": request.query_params.get("msg"),
             "level": request.query_params.get("level", "ok"),
@@ -364,17 +421,50 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ── 能力目录（注册表视角）──────────────────────────────────
 
     @app.get("/capabilities", response_class=HTMLResponse)
-    async def capabilities(request: Request):
+    async def capabilities(request: Request, zone: str | None = None):
+        """能力目录 = 两级，不在一屏里平铺 16 张卡片。
+
+        ``/capabilities`` 只回答"有哪几个区、各区多少个"；点进去
+        ``/capabilities?zone=toolkit`` 才列该区的能力。三区各有各的判断标准
+        （要不要 Key、要不要 ffmpeg、装没装插件），挤在一屏反而看不清。
+        """
         instance = get_app()
         by_kind = instance.registry.by_kind()
         for group in by_kind.values():
             for item in group:
                 cap = instance.registry.get(item["id"])
                 item["missing"] = await cap.check_ready(instance.context())
+
+        zones: list[dict[str, Any]] = []
+        for key, meta in KIND_META.items():
+            items = by_kind.get(key, [])
+            zones.append(
+                {
+                    "key": key,
+                    **meta,
+                    "total": len(items),
+                    "ready": sum(1 for i in items if not i["missing"]),
+                    "missing": sum(len(i["missing"]) for i in items),
+                    "missing_reasons": _tally(
+                        _short_reason(m) for i in items for m in i["missing"]
+                    ),
+                    "model_kinds": len(
+                        {i["model_capability"] for i in items if i.get("model_capability")}
+                    ),
+                    "modes": {
+                        mode: sum(1 for i in items if i.get("agent_mode") == mode)
+                        for mode in ("pipeline", "interactive", "react")
+                    },
+                    "sample": [i["name"] for i in items[:3]],
+                }
+            )
+        current = next((z for z in zones if z["key"] == zone), None)
         return render(
             request,
             "capabilities.html",
-            title="能力目录",
+            title="能力目录" if current is None else f"能力目录 · {current['label']}",
+            zones=zones,
+            zone=current,
             by_kind=by_kind,
             counts=await nav_counts(instance),
         )

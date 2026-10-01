@@ -26,11 +26,26 @@ a:hover{text-decoration:underline;text-decoration-color:var(--signal-glow);text-
 }
 .brand b{font-size:14px;font-weight:600;letter-spacing:-.01em;display:block}
 .brand small{display:block;font:500 10px/1.4 var(--mono);color:var(--ink-4);letter-spacing:.06em}
-.navgroup{margin-bottom:var(--s5)}
-.navgroup>span{
-  display:block;padding:0 var(--s3) 6px;
+.navgroup{margin-bottom:var(--s2)}
+.navgroup>summary{
+  display:flex;align-items:center;gap:var(--s2);cursor:pointer;user-select:none;
+  padding:6px var(--s3) 6px 6px;border-radius:var(--r-sm);list-style:none;
   font:500 10px/1 var(--mono);letter-spacing:.13em;text-transform:uppercase;color:var(--ink-4);
+  transition:background .14s,color .14s;
 }
+.navgroup>summary::-webkit-details-marker{display:none}
+.navgroup>summary::before{
+  content:"▸";font-size:9px;line-height:1;color:var(--ink-4);transition:transform .16s;flex:none;
+}
+.navgroup[open]>summary::before{transform:rotate(90deg)}
+.navgroup>summary:hover{background:var(--hover);color:var(--ink-3)}
+.navgroup>summary .gl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.navgroup>summary .n{font:500 10px/1 var(--mono);color:var(--ink-4);opacity:.7}
+/* 收起时也要看得见"当前在哪"——所以高亮标题行本身，而不是只高亮子项。 */
+.navgroup[data-current]>summary{color:var(--ink-2)}
+.navgroup[data-current]>summary::before{color:var(--signal)}
+.navgroup[data-current]:not([open])>summary{background:var(--surface-2);color:var(--ink)}
+.navgroup>a{margin-left:10px}
 .navgroup a{
   display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:var(--r-sm);
   font-size:13px;color:var(--ink-3);text-decoration:none;transition:background .14s,color .14s;
@@ -58,6 +73,50 @@ a:hover{text-decoration:underline;text-decoration-color:var(--signal-glow);text-
 .page-head{margin-bottom:var(--s6)}
 .page-head h1{font:600 25px/1.2 var(--sans);letter-spacing:-.02em;margin:0 0 6px}
 .page-head p{margin:0;color:var(--ink-3);font-size:13px;max-width:78ch;line-height:1.65}
+.page-head h1 .n{font:500 14px/1 var(--mono);color:var(--ink-4);vertical-align:6px;margin-left:6px}
+.crumbs{font-size:12px;margin:0 0 var(--s3)!important}
+.crumbs a{color:var(--ink-4);text-decoration:none}
+.crumbs a:hover{color:var(--signal)}
+
+/* ── 一级目录：三个区域，点进去看 ────────────────────────────────
+   16 张能力卡片平铺一屏是"都在"但"看不清"；先给三张区卡，
+   每张只回答"多少、就绪吗、大概有什么"。 */
+.zones{display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.zone{
+  position:relative;display:flex;gap:var(--s4);align-items:flex-start;
+  padding:var(--s5);border:1px solid var(--line);border-radius:var(--r-md);
+  background:var(--surface);text-decoration:none;color:inherit;
+  transition:background .14s,border-color .14s,transform .12s;
+}
+.zone::before{content:"";position:absolute;inset:0 auto 0 0;width:2px;border-radius:var(--r-md) 0 0 var(--r-md);background:var(--rail,transparent)}
+.zone:hover{background:var(--surface-2);border-color:var(--line-strong)}
+.zone:active{transform:scale(.996)}
+.zone .glyph{font-size:20px;line-height:1;color:var(--signal);flex:none;margin-top:2px}
+.zone .zbody{min-width:0;flex:1}
+.zone .ztop{display:flex;align-items:baseline;gap:var(--s2)}
+.zone h3{margin:0 0 var(--s1);font-size:17px;font-weight:600;letter-spacing:-.01em}
+.zone .ztop .n{margin-left:auto;font:500 12px/1 var(--mono);color:var(--ink-4)}
+.zone .tagline{margin:0 0 var(--s2);font-size:12px;color:var(--ink-4);
+  font-family:var(--mono);letter-spacing:.01em}
+.zone .desc{margin:0;font-size:12.5px;color:var(--ink-3);line-height:1.65}
+.zone .foot{display:flex;flex-wrap:wrap;gap:6px;margin-top:var(--s4)}
+.zone .sample{margin:var(--s2) 0 0;font-size:11.5px;color:var(--ink-4);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.zone .arrow{align-self:center;color:var(--ink-4);font-size:15px;flex:none}
+.zone:hover .arrow{color:var(--signal)}
+
+/* ── 二级页顶部的区域切换 ─────────────────────────────────────── */
+.ztabs{display:flex;flex-wrap:wrap;gap:var(--s2);margin:0 0 var(--s5)}
+.ztabs a{
+  display:inline-flex;align-items:center;gap:7px;padding:6px 11px;text-decoration:none;
+  border:1px solid var(--line);border-radius:999px;background:var(--surface);
+  font-size:12.5px;color:var(--ink-3);transition:background .14s,border-color .14s,color .14s;
+}
+.ztabs a:hover{background:var(--surface-2);color:var(--ink-2)}
+.ztabs a[aria-current="page"]{border-color:var(--signal);color:var(--ink);background:var(--surface-2)}
+.ztabs a .glyph{font-size:12px;color:var(--signal)}
+.ztabs a .n{margin-left:2px;font:500 10.5px/1 var(--mono);color:var(--ink-4)}
+@media (max-width:620px){.zone{padding:var(--s4)}.zone .arrow{display:none}}
 
 /* ── 通用块 ───────────────────────────────────────────────────── */
 .grid{display:grid;gap:var(--s4)}

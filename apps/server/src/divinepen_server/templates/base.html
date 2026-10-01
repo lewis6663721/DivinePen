@@ -14,9 +14,17 @@
       <span class="mark">DP</span>
       <span><b>DivinePen</b><small>视频创作底座</small></span>
     </a>
+    {# 分组可折叠：全展开时侧栏比正文还长，收起后 16 个入口和 3 个分组能同时看见。
+       当前页所在的分组默认展开（服务端渲染 open），之后以用户自己的开合为准 ——
+       收起时标题行会高亮，所以"当前在哪"不会因为折叠而变模糊。 #}
     {% for group, items in nav %}
-    <div class="navgroup">
-      <span>{{ group }}</span>
+    {% set is_current = (nav_group == group) %}
+    <details class="navgroup" data-remember="nav:{{ group }}"
+             {% if is_current %}open data-current="1"{% endif %}>
+      <summary>
+        <span class="gl">{{ group }}</span>
+        <span class="n">{{ items|length }}</span>
+      </summary>
       {% for href, label, key in items %}
       <a href="{{ href }}"
          {% if path == href or (href != '/' and path.startswith(href ~ '/')) %}aria-current="page"{% endif %}>
@@ -28,7 +36,7 @@
         {% endif %}
       </a>
       {% endfor %}
-    </div>
+    </details>
     {% endfor %}
     <div class="side-foot">
       {% if settings.auth_required and user %}

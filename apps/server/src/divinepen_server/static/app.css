@@ -210,6 +210,80 @@ pre.code .n{color:var(--ink)}
 .cap .top{margin-bottom:var(--s2)}
 .cap{padding:var(--s4) var(--s4) var(--s3)}
 
+/* ── 凭据清单（配置管理）：一屏装下 N 家供应商 ──────────────────
+   签名①状态轨的**行式**变体：左侧 2px 告诉你能不能跑，
+   一行只回答"配没配、通不通"，表单收进 <details>。
+   供应商上百家时，页面高度也只跟"展开了几行"有关。 */
+.creds{border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface);overflow:hidden}
+.cred{border-bottom:1px solid var(--line-soft);position:relative}
+.cred:last-child{border-bottom:0}
+.cred::before{
+  content:"";position:absolute;left:0;top:8px;bottom:8px;width:2px;border-radius:2px;
+  background:var(--rail,var(--line-strong));
+}
+.cred[data-state="ready"]{--rail:var(--signal)}
+.cred[data-state="need-key"]{--rail:var(--billing)}
+.cred[data-state="off"]{--rail:var(--ink-4)}
+.cred[data-state="off"]>summary{opacity:.62}
+
+.cred>summary{
+  display:flex;align-items:center;gap:var(--s3);
+  padding:10px var(--s4) 10px calc(var(--s4) + 8px);
+  cursor:pointer;list-style:none;transition:background .16s;
+}
+.cred>summary::-webkit-details-marker{display:none}
+.cred>summary::marker{content:""}
+.cred>summary:hover{background:var(--hover)}
+.cred[open]>summary{background:var(--surface-2)}
+/* 名字与 code 同一行：100 行时一屏能装下的行数，比好看更重要 */
+.cred .who{flex:1 1 200px;min-width:0;display:flex;align-items:baseline;gap:var(--s2)}
+.cred .who b{flex:0 1 auto;font-size:13.5px;font-weight:600;letter-spacing:-.006em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cred .who .id{flex:1 1 auto;font:500 11.5px/1.4 var(--mono);color:var(--ink-4);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cred .col{flex:none}
+.cred .caret{
+  flex:none;width:16px;text-align:center;font:500 14px/1 var(--mono);color:var(--ink-4);
+  transition:transform .18s cubic-bezier(.23,1,.32,1),color .18s;
+}
+.cred[open] .caret{transform:rotate(90deg);color:var(--ink-2)}
+
+.cred .body{
+  display:grid;gap:var(--s4);background:var(--surface);
+  padding:var(--s5) var(--s4) var(--s5) calc(var(--s4) + 8px);
+  border-top:1px solid var(--line);
+}
+.cred .body .field{margin-bottom:0}
+.keyrow{display:flex;gap:var(--s2)}
+.keyrow input{flex:1 1 auto;min-width:0}
+.keyrow .btn{flex:none;white-space:nowrap}
+.cred .note{
+  display:flex;gap:var(--s3);align-items:baseline;
+  padding:var(--s3) var(--s4);border-radius:var(--r-sm);
+  background:var(--surface-2);border:1px solid var(--line-soft);
+  font-size:12.5px;color:var(--ink-2);line-height:1.65;
+}
+.cred .note .k{
+  flex:none;font:500 10.5px/1.7 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--ink-4);
+}
+.cred .note.ok{background:var(--ok-dim);border-color:rgba(63,191,127,.22)}
+.cred .note.ok .k{color:var(--ok)}
+.cred .note.bad{background:var(--danger-dim);border-color:rgba(229,72,77,.24)}
+.cred .note.bad .k{color:var(--danger)}
+
+@media (max-width:980px){.cred .col-region{display:none}}
+@media (max-width:760px){.cred .col-key{display:none}}
+
+/* 分段控件也用在链接上（筛选用 GET，无 JS 也能用） */
+.seg a{
+  flex:1;text-align:center;text-decoration:none;
+  padding:7px 12px;border-radius:var(--r-xs);color:var(--ink-3);
+  font:500 12.5px/1 var(--mono);font-variant-numeric:tabular-nums;
+  transition:background .16s,color .16s;
+}
+.seg a[aria-current="page"]{background:var(--surface-3);color:var(--ink);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.seg a:hover:not([aria-current="page"]){color:var(--ink-2);text-decoration:none}
+
 @media (max-width:900px){
   .shell{grid-template-columns:1fr}
   .side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}

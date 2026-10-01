@@ -615,17 +615,73 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ── 配置管理（凭据 / OSS）──────────────────────────────────
 
     @app.get("/credentials", response_class=HTMLResponse)
-    async def credentials_page(request: Request):
+    async def credentials_page(request: Request, scope: str = "all"):
+        """配置管理：**一行一个供应商**，展开才出现表单。
+
+        为什么不是"一张卡一个供应商"：供应商是可选目录（几十上百家都可能），
+        而用户真正配过 Key 的通常只有两三家。卡片平铺会让页面高度与供应商数量
+        线性增长，并且把同一段说明文案复制 N 遍 —— 重复的不是数据，是噪音。
+        所以这里只保留**扫描层**（一行：名字 / 地域 / Key / 最近测试），
+        配置与测试动作收进行内展开（原生 ``<details>``）。
+        """
         instance = get_app()
         credentials = await instance.repo.credentials()
         by_provider = {c["provider"]: c for c in credentials}
         providers = await instance.repo.providers()
+        model_counts: dict[str, int] = {}
+        for row in await instance.repo.models():
+            model_counts[row["provider"]] = model_counts.get(row["provider"], 0) + 1
+
+        rows: list[dict[str, Any]] = []
+        for p in providers:
+            code = p["code"]
+            c = by_provider.get(code)
+            configured = bool(c and c.get("has_key"))
+            tested_ok = bool(c and c.get("last_test_at") and c.get("last_test_ok"))
+            # 状态轨的颜色只回答一件事：这家现在能不能用。
+            if not p.get("enabled"):
+                state = "off"
+            elif configured and tested_ok:
+                state = "ready"
+            else:
+                state = "need-key"
+            rows.append(
+                {
+                    "p": p,
+                    "c": c,
+                    "configured": configured,
+                    "state": state,
+                    "models": model_counts.get(code, 0),
+                    "open": False,
+                }
+            )
+
+        n_total = len(rows)
+        n_configured = sum(1 for r in rows if r["configured"])
+        n_missing = n_total - n_configured
+
+        # 已配置的排前面（用户 90% 的时间只关心这一撮），组内保持目录顺序。
+        rows.sort(key=lambda r: (not r["configured"], not r["p"].get("enabled")))
+
+        # 只有一家两家没配好时，直接替你展开 —— 少点一次。
+        if 0 < n_missing <= 3:
+            for r in rows:
+                r["open"] = not r["configured"]
+
+        if scope == "configured":
+            rows = [r for r in rows if r["configured"]]
+        elif scope == "missing":
+            rows = [r for r in rows if not r["configured"]]
+
         return render(
             request,
             "credentials.html",
             title="配置管理",
-            providers=providers,
-            credential_map=by_provider,
+            scope=scope,
+            rows=rows,
+            n_total=n_total,
+            n_configured=n_configured,
+            n_missing=n_missing,
             settings_map=await instance.repo.settings(),
             encryption=instance.box.backend,
             counts=await nav_counts(instance),

@@ -48,6 +48,21 @@
     });
   });
 
+  // ── 行列表过滤（配置管理那种长清单）────────────────────────
+  // 与表格版同源：输入框内容匹配行内任意文字。供应商上百家时靠它定位。
+  document.querySelectorAll("[data-filter-rows]").forEach((input) => {
+    const root = document.querySelector(input.getAttribute("data-filter-rows"));
+    const sel = input.getAttribute("data-filter-item") || ":scope > *";
+    if (!root) return;
+    input.addEventListener("input", () => {
+      const q = input.value.trim().toLowerCase();
+      root.querySelectorAll(sel).forEach((el) => {
+        const hit = !q || el.textContent.toLowerCase().includes(q);
+        el.style.display = hit ? "" : "none";
+      });
+    });
+  });
+
   // ── 目录树折叠记忆（记在 localStorage，跨页面保留）─────────
   document.querySelectorAll("details[data-remember]").forEach((el) => {
     const key = "dp:" + el.getAttribute("data-remember");

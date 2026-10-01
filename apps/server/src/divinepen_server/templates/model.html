@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import chip, param_field, param_table, empty %}
+{% from "_macros.html" import chip, param_field, param_table, media_datalist, empty %}
 
 {% block body %}
 <div class="page-head">
@@ -64,6 +64,7 @@
     </div>
     <div class="panel-body">
       <form method="post" action="/models/{{ model.id }}/preview">
+        {{ media_datalist() }}
         {% for g in model.params_obj.groups %}
           {% set visible = g.fields|rejectattr('advanced')|list %}
           {% set advanced = g.fields|selectattr('advanced')|list %}

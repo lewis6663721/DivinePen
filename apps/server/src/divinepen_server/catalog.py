@@ -112,7 +112,7 @@ def _f(
         required=required,
         default=default,
         description=doc,
-        options=[Option(label=o, value=o) for o in options],
+        options=_opt_list(options),
         billed=billed,
         min=min,
         max=max,
@@ -121,6 +121,38 @@ def _f(
         advanced=advanced,
         placeholder=placeholder,
     )
+
+
+def _opt_list(options: tuple[Any, ...]) -> list[Option]:
+    """``"1080P"`` 与 ``("1080P（默认）", "1080P")`` 两种写法都收。
+
+    下拉里要显示"2K · 几乎等于 2048*2048"，发出去的却必须只是 ``2K`` ——
+    显示名和值本来就不是一回事，等它们在某处被混用就晚了。
+    """
+    out: list[Option] = []
+    for item in options:
+        if isinstance(item, Option):
+            out.append(item)
+        elif isinstance(item, (tuple, list)) and len(item) == 2:
+            out.append(Option(label=str(item[0]), value=str(item[1])))
+        else:
+            out.append(Option(label=str(item), value=str(item)))
+    return out
+
+
+def _variant(schema: ParamsSchema, *fields: FieldSpec) -> ParamsSchema:
+    """按模型微调 schema：只换掉点名的字段，其余原样。
+
+    图像三兄弟的 ``size`` 语义真的不一样（Pro 到 4K、标准版到 2K、2.6 给的是
+    "常见比例推荐分辨率"）。让它们共用一份 schema 只有两种结局：要么都退化成
+    自由文本，要么把 A 的可选值显示在 B 的页面上。参数表是**按模型**的，
+    这里就是那句话的落点。
+    """
+    clone = schema.model_copy(deep=True)
+    by_key = {f.key: f for f in fields}
+    for group in clone.groups:
+        group.fields = [by_key.get(f.key, f) for f in group.fields]
+    return clone
 
 
 def _prompt_field(*, required: bool = True, max_length: int = 5000) -> FieldSpec:
@@ -481,8 +513,12 @@ def _models() -> list[ModelSpec]:
 
     # ── happyhorse（hh 系）────────────────────────────────────────
     hh_res = ("480P", "720P", "1080P")
+    # 文档给的宽高比是 9 个（比 wan2.7 多 4:5 / 5:4 / 9:21 / 21:9）。
+    # 少列一个，用户就只能去手打 —— 那正是"该下拉的没下拉"。
+    hh_ratio = ("16:9", "9:16", "1:1", "4:3", "3:4", "4:5", "5:4", "9:21", "21:9")
     hh_video_params = _video_params(
         resolution_options=hh_res,
+        ratio_options=hh_ratio,
         duration_min=3,
         duration_max=15,
         watermark_default=True,
@@ -506,6 +542,7 @@ def _models() -> list[ModelSpec]:
 
     hh_r2v_params = _video_params(
         resolution_options=hh_res,
+        ratio_options=hh_ratio,
         duration_min=3,
         duration_max=15,
         watermark_default=True,
@@ -616,10 +653,21 @@ def _models() -> list[ModelSpec]:
                     _f(
                         "parameters.size",
                         "输出尺寸",
-                        FieldType.TEXT,
-                        default="1328*1328",
+                        FieldType.COMBO,
+                        default=None,
                         billed=True,
-                        doc="输出图像宽*高，如 1328*1328。**直接影响费用**。",
+                        options=(
+                            ("1:1 · 1024*1024", "1024*1024"),
+                            ("16:9 · 1280*720", "1280*720"),
+                            ("9:16 · 720*1280", "720*1280"),
+                            ("4:3 · 1024*768", "1024*768"),
+                            ("3:4 · 768*1024", "768*1024"),
+                            ("上限 · 2048*2048", "2048*2048"),
+                        ),
+                        doc="格式 `宽*高`，如 `1024*1024`。像素面积需在 512*512 ~ 2048*2048、"
+                        "宽高比 1:8 ~ 8:1；**不填则由模型按提示词自动推荐分辨率**。"
+                        "下拉给的是常见值，也可以直接填别的。**直接影响费用**。",
+                        placeholder="从下拉里挑，或直接填 宽*高（留空=模型自荐）",
                     ),
                     _f(
                         "parameters.n",
@@ -739,9 +787,17 @@ def _models() -> list[ModelSpec]:
                     _f(
                         "parameters.size",
                         "输出尺寸",
-                        FieldType.TEXT,
-                        default="1376*768",
-                        doc="输出图像宽*高，如 1376*768。",
+                        FieldType.COMBO,
+                        default="2K",
+                        billed=True,
+                        options=(
+                            ("1K · 总像素约 1024*1024", "1K"),
+                            ("2K · 总像素约 2048*2048（默认）", "2K"),
+                        ),
+                        doc="两种写法二选一，不可混用：给**档位**（1K / 2K），"
+                        "或直接给 `宽*高`。有图片输入时输出宽高比跟随最后一张输入图。"
+                        "**直接影响费用**（默认 2K）。",
+                        placeholder="1K / 2K，或直接填 2048*2048",
                     ),
                     _f(
                         "parameters.watermark",
@@ -756,6 +812,55 @@ def _models() -> list[ModelSpec]:
             ),
         ]
     )
+    # size 按模型分档 —— 三家的可选值真的不一样，见 _variant 的说明。
+    image_size_variants = {
+        "wan2.7-image-pro": _variant(
+            wan_image_params,
+            _f(
+                "parameters.size",
+                "输出尺寸",
+                FieldType.COMBO,
+                default="2K",
+                billed=True,
+                options=(
+                    ("1K · 总像素约 1024*1024", "1K"),
+                    ("2K · 总像素约 2048*2048（默认）", "2K"),
+                    ("4K · 总像素约 4096*4096（仅本模型支持）", "4K"),
+                ),
+                doc="两种写法二选一：给**档位**（1K / 2K / 4K，文生图三种都支持，"
+                "有图输入时到 2K），或直接给 `宽*高`（文生图总像素 768*768 ~ 4096*4096）。"
+                "**直接影响费用**。",
+                placeholder="1K / 2K / 4K，或直接填 4096*4096",
+            ),
+        ),
+        "wan2.7-image": wan_image_params,
+        "wan2.6-image": _variant(
+            wan_image_params,
+            _f(
+                "parameters.size",
+                "输出尺寸",
+                FieldType.COMBO,
+                default="1K",
+                billed=True,
+                options=(
+                    ("1K · 总像素约 1280*1280（默认）", "1K"),
+                    ("2K · 总像素约 2048*2048", "2K"),
+                    ("1:1 · 1280*1280", "1280*1280"),
+                    ("2:3 · 800*1200", "800*1200"),
+                    ("3:2 · 1200*800", "1200*800"),
+                    ("3:4 · 960*1280", "960*1280"),
+                    ("4:3 · 1280*960", "1280*960"),
+                    ("9:16 · 720*1280", "720*1280"),
+                    ("16:9 · 1280*720", "1280*720"),
+                    ("21:9 · 1344*576", "1344*576"),
+                ),
+                doc="文档给的是两种写法：**档位**（1K 默认 / 2K，输出宽高比跟随最后一张输入图），"
+                "或直接给 `宽*高`。像素范围随模式变化（图像编辑 768*768 ~ 2048*2048，"
+                "图文混排到 1280*1280），宽高比 1:4 ~ 4:1。**直接影响费用**。",
+                placeholder="1K / 2K，或直接填 1280*720",
+            ),
+        ),
+    }
     for key, priority, note in (
         ("wan2.7-image-pro", 10, "专业版"),
         ("wan2.7-image", 20, "标准版"),
@@ -774,7 +879,7 @@ def _models() -> list[ModelSpec]:
                     headers={"Content-Type": "application/json"},
                     mode="sync",
                 ),
-                params=wan_image_params,
+                params=image_size_variants[key],
                 pricing=IMAGE_PRICE,
                 notes="万象系列统一走 image-generation/generation，同步返回图像 URL。",
                 doc_url="https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference",
@@ -805,7 +910,7 @@ def _models() -> list[ModelSpec]:
                     _f(
                         "temperature",
                         "温度",
-                        FieldType.FLOAT,
+                        FieldType.RANGE,
                         default=0.7,
                         min=0.0,
                         max=2.0,
@@ -815,7 +920,7 @@ def _models() -> list[ModelSpec]:
                     _f(
                         "top_p",
                         "核采样",
-                        FieldType.FLOAT,
+                        FieldType.RANGE,
                         default=0.8,
                         min=0.0,
                         max=1.0,

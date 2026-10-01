@@ -42,6 +42,47 @@
     });
   });
 
+  // ── 参数控件：只做"输入框做不到"的那一小部分 ──────────────────
+  // 原则：每一种控件**去掉 JS 也必须能用**。这里的 JS 全是锦上添花
+  // （同步显示、一键填入），不是表单能不能提交的前提。
+  document.querySelectorAll("input[type=range][data-range]").forEach((el) => {
+    const out = document.getElementById(el.getAttribute("data-range"));
+    if (!out) return;
+    const sync = () => (out.textContent = el.value);
+    el.addEventListener("input", sync);
+    sync();
+  });
+  // 取色器 ↔ 文本框：谁动同步谁。文本框才是提交的那一个 ——
+  // 因为 ffmpeg 的字幕色 `&H00FFFFFF&` 取色器根本表达不了。
+  document.querySelectorAll("[data-color-for]").forEach((picker) => {
+    const text = document.getElementById(picker.getAttribute("data-color-for"));
+    if (!text) return;
+    picker.addEventListener("input", () => (text.value = picker.value.toUpperCase()));
+    text.addEventListener("input", () => {
+      const v = text.value.trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(v)) picker.value = v;
+    });
+  });
+  // 产物库：单个参数点一下直接填；多值参数追加一行，且不重复。
+  document.querySelectorAll("[data-media-add]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = document.getElementById(btn.getAttribute("data-media-add"));
+      if (!target) return;
+      const path = btn.getAttribute("title") || btn.textContent.trim();
+      if (target.tagName === "TEXTAREA") {
+        const lines = target.value
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!lines.includes(path)) lines.push(path);
+        target.value = lines.join("\n");
+      } else {
+        target.value = path;
+      }
+      target.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  });
+
   // ── 模型选择器：换供应商/模型 = 自动点「切换」────────────────
   // 参数表单是跟着模型走的（video.t2v 下 wan2.7 有 9 个参数、happyhorse 只有 8 个），
   // 所以换模型必须回服务端拿那份新表单。这里只是替用户点一下「切换」按钮 ——

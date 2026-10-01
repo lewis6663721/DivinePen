@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import chip, param_field, param_table, model_picker, empty %}
+{% from "_macros.html" import chip, param_field, param_table, model_picker, media_datalist, empty %}
 
 {% block body %}
 <div class="page-head">
@@ -59,6 +59,7 @@
     </div>
     <div class="panel-body">
       <form method="post" action="/capabilities/{{ cap.id }}/run">
+        {{ media_datalist() }}
         {% if cap.model_driven %}{{ model_picker(picker, cap.id) }}{% endif %}
         {% for g in cap.form.groups %}
           {% if g.fields %}

@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Literal, get_args, get_origin
@@ -28,15 +29,26 @@ from .manifest import CostUnit
 
 
 class FieldType(StrEnum):
+    """参数类型。**这张表就是"一个页面兼容任何参数"的全部秘密**。
+
+    接口文档里的参数翻来覆去就这几种：字符串、数字、布尔、若干选一、若干选多、
+    文件、结构化数据。类型定下来，控件就定下来 —— 页面不需要认识"文生视频"或
+    "语音合成"，它只认识类型。所以新增一个模型、甚至新增一个供应商，
+    页面一行都不用改。
+    """
+
     TEXT = "text"
     TEXTAREA = "textarea"
     INT = "int"
     FLOAT = "float"
+    RANGE = "range"
     BOOL = "bool"
     ENUM = "enum"
     MULTI_ENUM = "multi_enum"
+    COMBO = "combo"
     URL = "url"
     JSON = "json"
+    COLOR = "color"
     ARTIFACT = "artifact"
     ARTIFACT_LIST = "artifact_list"
 
@@ -48,11 +60,18 @@ class FieldType(StrEnum):
             FieldType.TEXTAREA: "textarea",
             FieldType.INT: "number",
             FieldType.FLOAT: "number",
+            # 0~1 这类有上下限的比例参数：滑杆比输入框好用，也比输入框诚实 ——
+            # 越界根本滑不出去。
+            FieldType.RANGE: "range",
             FieldType.BOOL: "switch",
             FieldType.ENUM: "select",
             FieldType.MULTI_ENUM: "checkbox-group",
+            # 文档写"可选 1K/2K/4K，也可直接指定 宽*高"时就该用它：
+            # 该挑的时候能挑，该填的时候能填，两不耽误。
+            FieldType.COMBO: "combo",
             FieldType.URL: "url-input",
             FieldType.JSON: "code-editor",
+            FieldType.COLOR: "color",
             FieldType.ARTIFACT: "media-picker",
             FieldType.ARTIFACT_LIST: "media-picker-multi",
         }[self]
@@ -196,7 +215,7 @@ def _coerce(spec: FieldSpec, raw: Any) -> Any:
     try:
         if t is FieldType.INT:
             value: Any = int(raw)
-        elif t is FieldType.FLOAT:
+        elif t in (FieldType.FLOAT, FieldType.RANGE):
             value = float(raw)
         elif t is FieldType.BOOL:
             value = _as_bool(raw)
@@ -205,6 +224,15 @@ def _coerce(spec: FieldSpec, raw: Any) -> Any:
             allowed = {o.value for o in spec.options}
             if allowed and value not in allowed:
                 raise ValueError(f"只能是 {sorted(allowed)} 之一，收到 {value!r}")
+        elif t is FieldType.COMBO:
+            # 下拉里的选项是"常见值"，不是白名单 —— 文档明说可以自己填宽*高。
+            value = str(raw)
+            if not value:
+                raise ValueError("不能为空")
+        elif t is FieldType.COLOR:
+            value = str(raw)
+            if not _is_color(value):
+                raise ValueError(f"不是合法颜色：{value!r}（要 #RRGGBB / 0xRRGGBB / &HBBGGRR&）")
         elif t is FieldType.MULTI_ENUM:
             seq = raw if isinstance(raw, (list, tuple, set)) else [raw]
             allowed = {o.value for o in spec.options}
@@ -221,12 +249,20 @@ def _coerce(spec: FieldSpec, raw: Any) -> Any:
     except (TypeError, ValueError) as exc:
         raise ValueError(f"参数 {spec.key} 取值非法：{exc}") from exc
 
-    if t in (FieldType.INT, FieldType.FLOAT):
+    if t in (FieldType.INT, FieldType.FLOAT, FieldType.RANGE):
         if spec.min is not None and value < spec.min:
             raise ValueError(f"参数 {spec.key} 小于下限 {spec.min}")
         if spec.max is not None and value > spec.max:
             raise ValueError(f"参数 {spec.key} 大于上限 {spec.max}")
     return value
+
+
+#: ``#RRGGBB`` / ``0xRRGGBB`` / ffmpeg 的 ``&HBBGGRR&``（ass 字幕色就是这种写法）。
+_COLOR_RE = re.compile(r"^(#[0-9a-fA-F]{6}|0x[0-9a-fA-F]{6}|&H[0-9a-fA-F]{6}&?)$")
+
+
+def _is_color(value: str) -> bool:
+    return bool(_COLOR_RE.match(value.strip()))
 
 
 def _as_bool(raw: Any) -> bool:
@@ -250,7 +286,17 @@ def _field_from(name: str, info: Any, extra: dict[str, Any]) -> FieldSpec:
     # 否则 `policy: str = Field(json_schema_extra={"options": [...]})` 只能手打，
     # 界面上就成了"文档说是三选一，控件却让你自由发挥"。
     declared = _declared_options(extra.get("options"))
-    if declared and ftype in (FieldType.TEXT, FieldType.URL):
+    widget = str(extra.get("widget") or "").strip()
+    if widget:
+        # 显式点名的控件优先级最高。理由：像 `size` 这种"可选 1K/2K/4K，也可直接
+        # 指定 宽*高"的混合语义，光看类型是猜不出来的（两边都是 str），
+        # 只有写的人知道该给下拉还是给输入框。
+        ftype = FieldType(widget)
+        options = declared or options
+    elif declared and ftype in (FieldType.TEXT, FieldType.URL):
+        # 显式声明了 options 的字段一律长成下拉，哪怕类型是裸 str。
+        # 否则 `policy: str = Field(json_schema_extra={"options": [...]})` 只能手打，
+        # 界面上就成了"文档说是三选一，控件却让你自由发挥"。
         ftype, options = FieldType.ENUM, declared
     elif declared and ftype is FieldType.JSON and get_origin(annotation) in (list, tuple):
         # list[str] 会被推断成 JSON（"自己填数组"）；一旦声明了选项，

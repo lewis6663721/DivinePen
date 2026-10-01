@@ -162,6 +162,38 @@ input[type=text],input[type=number],select,textarea{
 input:hover,select:hover,textarea:hover{border-color:var(--line-strong)}
 input:focus,select:focus,textarea:focus{border-color:var(--signal);box-shadow:0 0 0 3px var(--signal-dim)}
 input:disabled{color:var(--ink-4);cursor:not-allowed}
+
+/* ── 参数控件：与 specs.FieldType.control 那张表一一对位 ───────────
+   这里多出来的每一种样式，都对应"文档里确实存在、但一个输入框表达不了"
+   的一类参数。没有一种是为某个具体能力写的。 */
+/* 多选：宽高比有 9 个，排成一条线会横穿整屏。 */
+.field .checkgroup{
+  display:flex;flex-wrap:wrap;gap:8px 16px;padding:9px 11px;
+  background:var(--inset);border:1px solid var(--line);border-radius:var(--r-sm);
+}
+.field .checkgroup label.check{font-size:12.5px}
+/* 比例类参数（temperature / top_p）：滑杆比输入框诚实 —— 越界滑不出去。 */
+.field .rangerow{
+  display:grid;grid-template-columns:1fr auto;gap:var(--s3);align-items:center;
+  background:var(--inset);border:1px solid var(--line);border-radius:var(--r-sm);padding:7px 11px;
+}
+.field .rangerow input[type=range]{width:100%;accent-color:var(--signal);background:transparent}
+.field .rangerow output{font-size:12.5px;color:var(--ink-2);min-width:5ch;text-align:right}
+/* 颜色：取色器负责不让人手打错，文本框负责写得下 &H00FFFFFF&。 */
+.field .colorrow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--s3);align-items:center}
+.field .colorrow input[type=color]{
+  width:40px;height:37px;padding:2px;background:var(--inset);
+  border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer;
+}
+/* 媒体参数：产物库给的是"点一下"，但绝不阻止你手打 URL —— 所以并排，不折叠。 */
+.field .media-lib{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:2px}
+.chip.file{
+  appearance:none;cursor:pointer;font-family:var(--mono);font-size:11px;
+  background:var(--surface-2);border:1px solid var(--line);color:var(--ink-3);
+}
+.chip.file:hover{color:var(--signal);border-color:var(--signal-dim)}
+/* "可挑可填"这类控件脚注：不抢眼，但解释了这个控件为什么不像别的控件。 */
+.field .ctl-note{font:400 10.5px/1 var(--mono);color:var(--ink-4);letter-spacing:.04em}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:var(--s4)}
 .seg{display:flex;gap:4px;background:var(--inset);border:1px solid var(--line);border-radius:var(--r-sm);padding:3px}
 .seg button{

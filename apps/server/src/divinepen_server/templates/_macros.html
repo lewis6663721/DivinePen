@@ -21,45 +21,145 @@
 {% if verified %}{{ chip('已核对文档', 'ok') }}{% else %}{{ chip('待核对', 'bill') }}{% endif %}
 {%- endmacro %}
 
-{# ── 参数控件：唯一一处把 FieldSpec 变成 HTML 的地方 ─────────────── #}
+{# ── 参数控件：唯一一处把 FieldSpec 变成 HTML 的地方 ───────────────
+   这就是「一个页面兼容任何参数」的落点：模板不认识能力、不认识模型、不认识供应商，
+   只认识 FieldType。要接一种新参数，改的是 specs.FieldType 那张类型→控件表，
+   不是某一页的模板 —— 所以新增模型、新增供应商，页面一行都不用动。 #}
+
+{# 值可能是 Artifact / dict / str，统一取成"人看得懂的那串"。 #}
+{% macro _addr(x) -%}
+{%- if x is none -%}
+{%- elif x is string -%}{{ x }}
+{%- elif x is mapping -%}{{ x.get('url') or x.get('path') or x.get('uri') or '' }}
+{%- else -%}{{ x }}
+{%- endif -%}
+{%- endmacro %}
+
+{# 多值 → 一行一个。手填、从产物库追加、从接口回读，都是这一种写法。 #}
+{% macro _lines(x) -%}
+{%- if x is none -%}
+{%- elif x is string -%}{{ x }}
+{%- elif x is iterable -%}{% for i in x %}{{ _addr(i) }}{% if not loop.last %}
+{% endif %}{% endfor %}
+{%- else -%}{{ x }}
+{%- endif -%}
+{%- endmacro %}
+
 {% macro param_field(f, values={}) -%}
 {% set raw = values.get(f.key) %}
 {% set v = raw if raw is not none else f.default %}
 {% set ctl = control_of(f) %}
-<div class="field">
+<div class="field" data-control="{{ ctl }}">
   <label class="lbl" for="p-{{ f.key }}">
     {% if f.billed %}<span class="dot-bill" title="该参数直接影响计费"></span>{% endif %}
     <span>{{ f.label }}</span>
     {% if f.required %}<span class="req">必填</span>{% endif %}
     <code class="key">{{ f.key }}</code>
+    {% if ctl == 'combo' %}<span class="ctl-note">可挑可填</span>{% endif %}
+    {% if f.options and ctl in ('select', 'combo', 'checkbox-group') %}<span class="ctl-note">{{ f.options|length }} 个可选值</span>{% endif %}
   </label>
+
   {% if ctl == 'select' %}
-    <select id="p-{{ f.key }}" name="{{ f.key }}">
-      {% if not f.required %}<option value="">（不传）</option>{% endif %}
-      {% for o in f.options %}
-      <option value="{{ o.value }}" {% if v is not none and v|string == o.value|string %}selected{% endif %}>{{ o.label }}</option>
-      {% endfor %}
-    </select>
+  <select id="p-{{ f.key }}" name="{{ f.key }}">
+    {% if not f.required %}<option value="">（不传）</option>{% endif %}
+    {% for o in f.options %}
+    <option value="{{ o.value }}" {% if v is not none and v|string == o.value|string %}selected{% endif %}>{{ o.label }}</option>
+    {% endfor %}
+  </select>
+
+  {% elif ctl == 'combo' %}
+  {# 文档写「可选 1K/2K/4K，也可直接指定 宽*高」时用这个：
+     下拉给常见值，输入框留自由。datalist 两样都能干，而且**不带 JS 也成立**。 #}
+  <input id="p-{{ f.key }}" name="{{ f.key }}" list="dl-{{ f.key }}" autocomplete="off"
+         value="{{ v if v is not none else '' }}" placeholder="{{ f.placeholder or '从下拉里挑，或直接填' }}"/>
+  <datalist id="dl-{{ f.key }}">
+    {% for o in f.options %}<option value="{{ o.value }}">{{ o.label }}</option>{% endfor %}
+  </datalist>
+
   {% elif ctl == 'switch' %}
-    <label class="check">
-      <input type="checkbox" name="{{ f.key }}" value="true" {% if v %}checked{% endif %}/>
-      <span>开启</span>
-    </label>
-  {% elif ctl in ('textarea', 'code-editor') %}
-    <textarea id="p-{{ f.key }}" name="{{ f.key }}" rows="{{ 5 if ctl == 'code-editor' else 3 }}"
-      placeholder="{{ f.placeholder }}">{{ v if v is not none else '' }}</textarea>
-  {% elif ctl == 'number' %}
-    <input id="p-{{ f.key }}" type="number" name="{{ f.key }}" value="{{ v if v is not none else '' }}"
-      {% if f.min is not none %}min="{{ f.min }}"{% endif %}
-      {% if f.max is not none %}max="{{ f.max }}"{% endif %}
-      {% if f.step %}step="{{ f.step }}"{% endif %}/>
+  <label class="check">
+    <input type="checkbox" name="{{ f.key }}" value="true" {% if v %}checked{% endif %}/>
+    <span>开启</span>
+  </label>
+
+  {% elif ctl == 'checkbox-group' %}
+  {# 多选：同一个 name 出现多次，后端按 getlist 收成数组。 #}
+  <div class="checkgroup">
+    {% for o in f.options %}
+    {% set on = v is iterable and v is not string and v is not mapping and o.value in v %}
+    <label class="check"><input type="checkbox" name="{{ f.key }}" value="{{ o.value }}"
+      {% if on %}checked{% endif %}/><span>{{ o.label }}</span></label>
+    {% endfor %}
+  </div>
+
+  {% elif ctl == 'range' %}
+  <div class="rangerow">
+    <input id="p-{{ f.key }}" type="range" name="{{ f.key }}" data-range="out-{{ f.key }}"
+           value="{{ v if v is not none else (f.min if f.min is not none else 0) }}"
+           {% if f.min is not none %}min="{{ f.min }}"{% endif %}
+           {% if f.max is not none %}max="{{ f.max }}"{% endif %}
+           step="{{ f.step if f.step else 0.01 }}"/>
+    <output id="out-{{ f.key }}" class="mono">{{ v if v is not none else (f.min if f.min is not none else 0) }}</output>
+  </div>
+
+  {% elif ctl == 'color' %}
+  {# 取色器 + 文本框是一体的：ffmpeg 认 `&H00FFFFFF`、CSS 认 `#FFFFFF`，
+     只有文本能写全两种，取色器负责不让人手打错。 #}
+  <div class="colorrow">
+    <input type="color" data-color-for="p-{{ f.key }}" aria-label="{{ f.label }} 取色"
+           value="{% if v and v is string and v.startswith('#') %}{{ v }}{% else %}#ffffff{% endif %}"/>
+    <input id="p-{{ f.key }}" type="text" name="{{ f.key }}" class="mono"
+           value="{{ v if v is not none else '' }}" placeholder="{{ f.placeholder or '#FFFFFF' }}"/>
+  </div>
+
+  {% elif ctl in ('media-picker', 'media-picker-multi') %}
+  {# 媒体参数一律允许三种写法：产物库里的相对路径、本机绝对路径、公网 URL。
+     单个用 datalist 直接挑；多个用"一行一个"，并给一个追加下拉。 #}
+  {% if ctl == 'media-picker' %}
+  <input id="p-{{ f.key }}" name="{{ f.key }}" list="dl-media" autocomplete="off"
+         value="{{ _addr(v) }}" placeholder="{{ f.placeholder or '粘贴 URL，或从产物库里挑' }}"/>
   {% else %}
-    <input id="p-{{ f.key }}" type="{{ 'url' if ctl == 'url-input' else 'text' }}" name="{{ f.key }}"
-      value="{{ v if v is not none else '' }}" placeholder="{{ f.placeholder }}"
-      {% if f.max_length %}maxlength="{{ f.max_length }}"{% endif %}/>
+  <textarea id="p-{{ f.key }}" name="{{ f.key }}" rows="3"
+            placeholder="一行一个：URL 或本机路径">{{ _lines(v) }}</textarea>
   {% endif %}
+  {% set lib = media_library() %}
+  {% if lib %}
+  <div class="media-lib" data-media-lib="{{ 'p-' ~ f.key }}">
+    <span class="ctl-note">产物库</span>
+    {% for item in lib[:12] %}
+    <button class="chip file" type="button" data-media-add="{{ 'p-' ~ f.key }}"
+            title="{{ item.path }}">{{ item.name }}</button>
+    {% endfor %}
+    {% if lib|length > 12 %}<span class="ctl-note">…共 {{ lib|length }} 个</span>{% endif %}
+  </div>
+  {% endif %}
+
+  {% elif ctl in ('textarea', 'code-editor') %}
+  <textarea id="p-{{ f.key }}" name="{{ f.key }}" rows="{{ 6 if ctl == 'code-editor' else 3 }}"
+    placeholder="{{ f.placeholder }}">{{ v if v is not none else '' }}</textarea>
+
+  {% elif ctl == 'number' %}
+  <input id="p-{{ f.key }}" type="number" name="{{ f.key }}" value="{{ v if v is not none else '' }}"
+    {% if f.min is not none %}min="{{ f.min }}"{% endif %}
+    {% if f.max is not none %}max="{{ f.max }}"{% endif %}
+    {% if f.step %}step="{{ f.step }}"{% endif %}/>
+
+  {% else %}
+  <input id="p-{{ f.key }}" type="{{ 'url' if ctl == 'url-input' else 'text' }}" name="{{ f.key }}"
+    value="{{ v if v is not none else '' }}" placeholder="{{ f.placeholder }}"
+    {% if f.max_length %}maxlength="{{ f.max_length }}"{% endif %}/>
+  {% endif %}
+
   {% if f.description %}<p class="hint">{{ f.description|bold }}</p>{% endif %}
 </div>
+{%- endmacro %}
+
+{# 产物库共享一份 datalist：整页只出现一次，媒体参数共用一个 id。
+   放在表单里而不是每个字段里 —— 同一页里重复 id 是无效 HTML。 #}
+{% macro media_datalist() -%}
+<datalist id="dl-media">
+  {% for item in media_library() %}<option value="{{ item.path }}">{{ item.name }}</option>{% endfor %}
+</datalist>
 {%- endmacro %}
 
 {# ── 模型选择器：供应商 → 模型 → **该模型**的参数 ────────────────────

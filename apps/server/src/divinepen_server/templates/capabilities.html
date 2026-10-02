@@ -10,7 +10,7 @@
   <h3>{{ c.name }}</h3>
   <p>{{ c.description or '（未写描述）' }}</p>
   <div class="foot">
-    {{ chip(c.category, 'sig') }}
+    {% if c.subcategory %}{{ chip(c.subcategory, 'sig') }}{% else %}{{ chip(c.category, 'sig') }}{% endif %}
     {% if c.model_capability %}{{ chip('模型 · ' ~ c.model_capability) }}{% endif %}
     {% if c.cost and c.cost.unit and c.cost.unit != 'free' %}{{ chip('计费 · ' ~ c.cost.unit, 'bill') }}{% else %}{{ chip('免费', 'ok') }}{% endif %}
     {% if c.async_task %}{{ chip('异步') }}{% endif %}
@@ -125,7 +125,19 @@
     {% endif %}
   {% else %}
     {% if by_kind[zone.key] %}
-      <div class="caps">{% for c in by_kind[zone.key] %}{{ cap_card(c) }}{% endfor %}</div>
+      {% if zone.key == 'toolkit' and toolkit_groups %}
+        {% for group in toolkit_groups %}
+        <div class="sec-label" style="margin:0 0 var(--s3)">
+          <b style="color:var(--signal);font-size:1.1em">{{ group.label }}</b>
+          <span class="n" style="font-size:13px;color:var(--ink-4);margin-left:var(--s2)">{{ group.caps|length }}</span>
+        </div>
+        <div class="caps" style="margin-bottom:var(--s5)">
+          {% for c in group.caps %}{{ cap_card(c) }}{% endfor %}
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="caps">{% for c in by_kind[zone.key] %}{{ cap_card(c) }}{% endfor %}</div>
+      {% endif %}
     {% else %}
       {{ empty('这一区还是空的', '暂无该类能力。') }}
     {% endif %}

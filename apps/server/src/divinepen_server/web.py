@@ -38,7 +38,7 @@ from divinepen.core.specs import FieldType, ParamsSchema, TaskStatus
 
 from . import modelform as mf
 from . import runtime as rt
-from .catalog import category_label, category_sort
+from .catalog import broad_label, broad_sort, category_label, category_sort
 from .db import dumps
 from .settings import Settings, get_settings
 from .store import seed, verify_password
@@ -490,6 +490,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 cap = instance.registry.get(item["id"])
                 item["missing"] = await cap.check_ready(instance.context())
 
+        # 按大类分组（图片/视频/音频/文本）—— 能力目录二级页用
+        toolkit_groups: list[dict[str, Any]] = []
+        raw_toolkit = by_kind.get("toolkit", [])
+        buckets: dict[str, list[dict[str, Any]]] = {}
+        for item in raw_toolkit:
+            prefix = item["id"].split(".", 1)[0]
+            item["subcategory"] = category_label(item.get("model_capability") or item["id"])
+            buckets.setdefault(prefix, []).append(item)
+        for prefix in sorted(buckets, key=broad_sort):
+            toolkit_groups.append({
+                "prefix": prefix,
+                "label": broad_label(prefix + "."),
+                "caps": buckets[prefix],
+            })
+
         zones: list[dict[str, Any]] = []
         for key, meta in KIND_META.items():
             items = by_kind.get(key, [])
@@ -521,6 +536,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             zones=zones,
             zone=current,
             by_kind=by_kind,
+            toolkit_groups=toolkit_groups,
             counts=await nav_counts(instance),
         )
 

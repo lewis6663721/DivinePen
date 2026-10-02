@@ -1145,13 +1145,30 @@ CATEGORY_LABELS: dict[str, str] = {
     "audio.music": "音乐生成",
 }
 
+#: 大类 → 中文名 + 展示顺序（能力目录的二级分组）
+BROAD_LABELS: dict[str, str] = {
+    "image": "图片",
+    "video": "视频",
+    "audio": "音频",
+    "llm": "文本",
+    "media": "剪辑",
+}
+
 CATEGORY_ORDER: list[str] = list(CATEGORY_LABELS)
+BROAD_ORDER: list[str] = list(BROAD_LABELS)
 
 
 def category_label(capability: str) -> str:
+    """细分类中文名：image.t2i → 文生图。"""
     if capability.startswith("media."):
         return "本地剪辑（ffmpeg）"
     return CATEGORY_LABELS.get(capability, capability)
+
+
+def broad_label(capability: str) -> str:
+    """大类中文名：image.t2i → 图片，video.t2v → 视频。"""
+    prefix = capability.split(".", 1)[0]
+    return BROAD_LABELS.get(prefix, prefix)
 
 
 def category_sort(capability: str) -> int:
@@ -1161,12 +1178,23 @@ def category_sort(capability: str) -> int:
         return len(CATEGORY_ORDER)
 
 
+def broad_sort(prefix: str) -> int:
+    try:
+        return BROAD_ORDER.index(prefix)
+    except ValueError:
+        return len(BROAD_ORDER)
+
+
 __all__ = [
+    "BROAD_LABELS",
+    "BROAD_ORDER",
     "CATEGORY_LABELS",
     "CATEGORY_ORDER",
     "MODELS",
     "PROVIDERS",
     "PROVIDER_ALIYUN",
+    "broad_label",
+    "broad_sort",
     "category_label",
     "category_sort",
 ]

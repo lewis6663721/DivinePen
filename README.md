@@ -184,7 +184,7 @@ make smoke        # 端到端冒烟
 
 - `wan2.7-videoedit` 命名与其它文档不一致，待与官方确认后统一。
 - `图生视频_hh.md` 的模型名疑为笔误（与文生视频文档重名），对应模型**默认停用**。
-- `llm.md` 里没核到 `qwen3.8-max` 这个写法，连通性测试默认模型暂用 `qwen-plus`（配置项可改）。
+- 连通性测试默认模型已切换为 `qwen3.7-plus`（旧版 `qwen-plus` 仍可用，推荐迁移）。
 - `语音合成qwen_tts.md` 缺声音复刻接口参考，`audio.tts.clone` 暂无法建模。
 - TTS / ASR 走 WebSocket，一期只登记不接入，页面上标"未接入"。
 - 本机 ffmpeg 未编译 libass（无 `subtitles` 滤镜）：`media.burn_subtitles` 预演可看、真跑会被体检拦下；

@@ -49,7 +49,7 @@ class Settings:
     #: 默认关闭登录（本地开发直接看页面）。上线前置 true。
     auth_required: bool = False
     #: 连通性测试用的默认文本模型。
-    connectivity_model: str = "qwen-plus"
+    connectivity_model: str = "qwen3.7-plus"
     credential_key: str = ""
     oss_enabled: bool = False
     oss_endpoint: str = ""
@@ -81,7 +81,7 @@ class Settings:
             allow_register=_flag("ALLOW_REGISTER", True),
             auth_required=_flag("AUTH_REQUIRED", False),
 
-            connectivity_model=_env("CONNECTIVITY_MODEL", "qwen-plus"),
+            connectivity_model=_env("CONNECTIVITY_MODEL", "qwen3.7-plus"),
             credential_key=_env("CREDENTIAL_KEY"),
             oss_enabled=_flag("OSS_ENABLED"),
             oss_endpoint=_env("OSS_ENDPOINT"),

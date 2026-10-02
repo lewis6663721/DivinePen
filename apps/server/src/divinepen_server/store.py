@@ -666,19 +666,20 @@ async def seed(repo: Repo, *, force: bool = False) -> dict[str, Any]:
     for row in PROVIDERS:
         if await repo.upsert_provider(row, force=force):
             result["providers"] += 1
-    seen: set[str] = set()
+    seen: set[tuple[str, str, str]] = set()
     for spec in MODELS:
-        if spec.key in seen:
-            msg = f"目录里出现重复模型 key：{spec.provider}:{spec.key}"
+        identity = (spec.provider, spec.key, spec.capability)
+        if identity in seen:
+            msg = f"目录里出现重复模型 key：{spec.provider}:{spec.key}（{spec.capability}）"
             raise ValueError(msg)
-        seen.add(spec.key)
+        seen.add(identity)
         outcome = await repo.upsert_model(spec, force=force)
         result["models"][outcome] += 1
     if not await repo.user_by_name("admin"):
         await repo.create_user("admin", "divinepen", display_name="管理员", role="admin")
         result["admin_created"] = True
     defaults = await repo.settings()
-    for key, value in (("connectivity_model", "qwen-plus"), ("cost_alert_threshold", "50")):
+    for key, value in (("connectivity_model", "qwen3.7-plus"), ("cost_alert_threshold", "50")):
         if key not in defaults:
             await repo.set_setting(key, value)
     return result

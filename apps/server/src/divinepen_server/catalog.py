@@ -700,8 +700,9 @@ def _models() -> list[ModelSpec]:
         ]
     )
     for key, priority, note in (
-        ("qwen-image-3.0-pro", 10, "专业版"),
-        ("qwen-image-3.0", 20, "标准版"),
+        ("qwen-image-3.0-pro", 10, "旗舰，复杂版面 + 文字渲染"),
+        ("qwen-image-3.0", 20, "同上，速度更快"),
+        ("z-image-turbo", 30, "快速低成本，写实人像"),
     ):
         out.append(
             ModelSpec(
@@ -963,14 +964,28 @@ def _models() -> list[ModelSpec]:
         mode="sync",
     )
     for key, ability, priority, note, verified in (
-        ("qwen3.8-max", "llm.chat", 10, "旗舰文本模型", False),
-        ("qwen-max", "llm.chat", 20, "上一代旗舰", True),
-        ("qwen-plus", "llm.chat", 30, "均衡档，性价比首选", True),
-        ("qwen-turbo", "llm.chat", 40, "最快最省", True),
-        ("qwen-long", "llm.chat", 50, "超长上下文（文档级）", True),
-        ("qwen-flash", "llm.chat", 60, "低延迟档", True),
-        ("qwen-vl-max", "llm.vision", 10, "视觉理解旗舰", True),
-        ("qwen-vl-plus", "llm.vision", 20, "视觉理解均衡档", True),
+        # ── 推荐（2026 最新）──
+        ("qwen3.8-max", "llm.chat", 10, "旗舰，1M 上下文，思考模式", True),
+        ("qwen3.8-flash", "llm.chat", 15, "轻量高速，1M 上下文", True),
+        ("qwen3.7-plus", "llm.chat", 20, "均衡首选，1M 上下文，完整工具链", True),
+        ("qwen3.7-flash", "llm.chat", 25, "均衡高速，1M 上下文", True),
+        ("qwen3.7-max", "llm.chat", 30, "3.7 旗舰", True),
+        ("qwen3.6-plus", "llm.chat", 35, "3.6 均衡档，1M 上下文", True),
+        ("qwen3.6-flash", "llm.chat", 37, "3.6 快速档，1M 上下文", True),
+        ("qwen3.5-plus", "llm.chat", 40, "3.5 均衡档", True),
+        ("qwen3.5-flash", "llm.chat", 42, "3.5 快速档", True),
+        # ── 第三方（百炼托管）──
+        ("deepseek-v4-pro", "llm.chat", 50, "DeepSeek V4 Pro，1M 上下文", True),
+        ("deepseek-v4-flash", "llm.chat", 52, "DeepSeek V4 Flash", True),
+        ("glm-5.2", "llm.chat", 55, "智谱 GLM-5.2", True),
+        ("kimi-k3", "llm.chat", 57, "月之暗面 Kimi K3", True),
+        ("MiniMax-M3", "llm.chat", 59, "MiniMax M3，192k", True),
+        # ── 旧版（仍可用）──
+        ("qwen-plus", "llm.chat", 70, "旧版均衡档（1M），推荐迁移到 qwen3.7-plus", True),
+        ("qwen-max", "llm.chat", 72, "旧版旗舰（32k），推荐迁移到 qwen3.8-max", True),
+        ("qwen-turbo", "llm.chat", 75, "旧版快速档（128k），推荐迁移到 qwen3.8-flash", True),
+        ("qwen-long", "llm.chat", 80, "超长上下文（10M Token）", True),
+        ("qwen-flash", "llm.chat", 85, "旧版低延迟档（1M）", True),
     ):
         out.append(
             ModelSpec(
@@ -988,8 +1003,130 @@ def _models() -> list[ModelSpec]:
                     "source_doc": "llm.md",
                     "verified": verified,
                     "priority": priority,
-                    "blocked_by": "" if verified else "模型名未在 llm.md 中确认，待核对",
+                    "blocked_by": "",
                 },
+            )
+        )
+
+    # 视觉理解模型
+    vision_params = llm_params  # 复用文本模型参数 schema
+    vision_api = llm_api
+    for key, priority, note in (
+        ("qwen3.8-max", 10, "视觉旗舰，多模态理解"),
+        ("qwen3.7-plus", 20, "视觉均衡，多模态理解"),
+        ("qwen-vl-max", 30, "旧版视觉旗舰"),
+        ("qwen-vl-plus", 40, "旧版视觉均衡"),
+    ):
+        out.append(
+            ModelSpec(
+                provider=PROVIDER_ALIYUN,
+                key=key,
+                capability="llm.vision",
+                name=f"{key}（{note}）",
+                region="cn-beijing",
+                api=vision_api,
+                params=vision_params,
+                pricing=TOKEN_PRICE,
+                notes="走 OpenAI 兼容端点，支持图片 URL 输入。",
+                doc_url="https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope",
+                meta={"source_doc": "vision.md", "verified": True, "priority": priority, "blocked_by": ""},
+            )
+        )
+
+    # ── 文本向量 ─────────────────────────────────────────────────
+    embedding_params = ParamsSchema(
+        groups=[
+            GroupSpec(
+                key="input",
+                label="输入",
+                fields=[
+                    _f(
+                        "input.texts",
+                        "文本数组",
+                        FieldType.JSON,
+                        required=True,
+                        doc="待向量化的文本数组，如 ['文本1', '文本2']。",
+                        placeholder='["你好", "世界"]',
+                    ),
+                ],
+            ),
+        ]
+    )
+    embedding_api = ApiSpec(
+        method="POST",
+        path="/compatible-mode/v1/embeddings",
+        headers={"Content-Type": "application/json"},
+        mode="sync",
+    )
+    for key, priority, note in (
+        ("qwen3.7-text-embedding", 10, "旗舰，推荐"),
+        ("qwen3.7-text-embedding-flash", 20, "快速档"),
+        ("qwen3-vl-embedding", 30, "图文向量"),
+    ):
+        out.append(
+            ModelSpec(
+                provider=PROVIDER_ALIYUN,
+                key=key,
+                capability="llm.embedding",
+                name=f"{key}（{note}）",
+                region="cn-beijing",
+                api=embedding_api,
+                params=embedding_params,
+                pricing=TOKEN_PRICE,
+                notes="走 OpenAI 兼容端点。",
+                doc_url="https://help.aliyun.com/zh/model-studio/text-embedding-api-reference",
+                meta={"source_doc": "embedding.md", "verified": True, "priority": priority, "blocked_by": ""},
+            )
+        )
+
+    # ── 重排序 ───────────────────────────────────────────────────
+    rerank_params = ParamsSchema(
+        groups=[
+            GroupSpec(
+                key="input",
+                label="输入",
+                fields=[
+                    _f(
+                        "input.query",
+                        "查询文本",
+                        FieldType.TEXT,
+                        required=True,
+                        doc="查询语句。",
+                    ),
+                    _f(
+                        "input.documents",
+                        "文档数组",
+                        FieldType.JSON,
+                        required=True,
+                        doc="待排序的文档列表。",
+                        placeholder='["文档1", "文档2"]',
+                    ),
+                ],
+            ),
+        ]
+    )
+    rerank_api = ApiSpec(
+        method="POST",
+        path="/compatible-mode/v1/rerank",
+        headers={"Content-Type": "application/json"},
+        mode="sync",
+    )
+    for key, priority, note in (
+        ("qwen3.7-text-rerank", 10, "推荐"),
+    ):
+        out.append(
+            ModelSpec(
+                provider=PROVIDER_ALIYUN,
+                key=key,
+                capability="llm.rerank",
+                name=f"{key}（{note}）",
+                region="cn-beijing",
+                api=rerank_api,
+                params=rerank_params,
+                pricing=TOKEN_PRICE,
+                notes="走 OpenAI 兼容端点。",
+                doc_url="https://help.aliyun.com/zh/model-studio/text-rerank-api-reference",
+                meta={"source_doc": "rerank.md", "verified": True, "priority": priority, "blocked_by": ""},
             )
         )
 
@@ -1036,8 +1173,8 @@ def _models() -> list[ModelSpec]:
         ]
     )
     for key, priority in (
-        ("qwen-audio-3.0-tts-flash", 10),
-        ("qwen-audio-3.0-tts-plus", 20),
+        ("qwen-audio-3.0-tts-plus", 10),
+        ("qwen-audio-3.0-tts-flash", 20),
         ("cosyvoice-v3-flash", 30),
         ("cosyvoice-v3-plus", 40),
     ):
@@ -1068,10 +1205,12 @@ def _models() -> list[ModelSpec]:
         )
 
     for key, priority in (
-        ("fun-asr-realtime-2026-02-28", 10),
-        ("fun-asr-realtime-2025-11-07", 20),
-        ("fun-asr-flash-8k-realtime", 30),
-        ("qwen-audio-3.0-asr-flash-streaming", 40),
+        ("qwen-audio-3.1-asr-flash-streaming", 10),
+        ("qwen-audio-3.1-asr-flash-filetrans", 15),
+        ("fun-asr-realtime-2026-02-28", 20),
+        ("fun-asr-realtime-2025-11-07", 30),
+        ("fun-asr-flash-8k-realtime", 40),
+        ("qwen-audio-3.0-asr-flash-streaming", 50),
     ):
         out.append(
             ModelSpec(
@@ -1117,6 +1256,61 @@ def _models() -> list[ModelSpec]:
                 "verified": False,
                 "priority": 90,
                 "blocked_by": "缺接口文档",
+            },
+        )
+    )
+
+    # ── 音乐生成 ────────────────────────────────────────────────
+    music_params = ParamsSchema(
+        groups=[
+            GroupSpec(
+                key="input",
+                label="输入",
+                fields=[
+                    _f(
+                        "input.prompt",
+                        "音乐描述",
+                        FieldType.TEXTAREA,
+                        required=True,
+                        max_length=500,
+                        doc="描述期望的音乐风格、情绪、乐器等。",
+                        placeholder="轻快的钢琴曲，适合咖啡氛围",
+                    ),
+                    _f(
+                        "parameters.duration",
+                        "时长（秒）",
+                        FieldType.INT,
+                        default=30,
+                        min=10,
+                        max=120,
+                        billed=True,
+                        doc="生成音乐时长，默认 30 秒。",
+                    ),
+                ],
+            ),
+        ]
+    )
+    out.append(
+        ModelSpec(
+            provider=PROVIDER_ALIYUN,
+            key="fun-music-v1",
+            capability="audio.music",
+            name="音乐生成 fun-music-v1",
+            region="cn-beijing",
+            enabled=False,
+            api=ApiSpec(
+                method="WEBSOCKET", path="/api-ws/v1/inference", headers={}, mode="sync"
+            ),
+            params=music_params,
+            pricing=_price(CostUnit.SECOND, "按生成音频秒数计费。"),
+            notes="**一期未接入**：音乐生成走 WebSocket，需单独传输实现。",
+            doc_url="https://help.aliyun.com/zh/model-studio/fun-music",
+            meta={
+                "source_doc": "fun_music.md",
+                "verified": False,
+                "transport": "websocket",
+                "priority": 10,
+                "blocked_by": "需 WebSocket 传输实现",
             },
         )
     )

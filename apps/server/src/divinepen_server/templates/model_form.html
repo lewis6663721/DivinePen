@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% from "_macros.html" import chip %}
+
+{# 一行参数。**同一份 markup 给两处用**：服务端渲染已有行（给真实行号），
+   JS 克隆一份加新行（行号是 __i__ 占位，克隆时才替换）。
+   分开写两份的话，早晚会改了一边忘了另一边 —— 而那种错要等用户加了
+   一行才发现，还会被当成"保存没生效"。 #}
+{% macro param_row(r) %}
+<tr data-param-row>
+  <td>
+    <input type="text" name="p_key.{{ r.i }}" value="{{ r.key }}" placeholder="input.prompt"
+           spellcheck="false" class="mono"/>
+    {% if errors.get('p_key.' ~ r.i) %}<div class="field-err">{{ errors['p_key.' ~ r.i] }}</div>{% endif %}
+    {% if errors.get('p_type.' ~ r.i) %}<div class="field-err">{{ errors['p_type.' ~ r.i] }}</div>{% endif %}
+  </td>
+  <td><input type="text" name="p_label.{{ r.i }}" value="{{ r.label }}" placeholder="提示词"/></td>
+  <td>
+    <select name="p_type.{{ r.i }}">
+      {% for value, text in param_types %}
+      <option value="{{ value }}" {% if r.type == value %}selected{% endif %}>{{ text }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td>
+    <input type="text" name="p_group.{{ r.i }}" value="{{ r.group }}" list="group-list"
+           placeholder="input" class="mono"/>
+    {% if errors.get('p_default.' ~ r.i) %}<div class="field-err">{{ errors['p_default.' ~ r.i] }}</div>{% endif %}
+  </td>
+  <td class="tick"><input type="checkbox" name="p_required.{{ r.i }}" value="1" {% if r.required %}checked{% endif %}/></td>
+  <td class="tick"><input type="checkbox" name="p_billed.{{ r.i }}" value="1" {% if r.billed %}checked{% endif %}/></td>
+  <td class="tick"><input type="checkbox" name="p_advanced.{{ r.i }}" value="1" {% if r.advanced %}checked{% endif %}/></td>
+  <td><input type="text" name="p_default.{{ r.i }}" value="{{ r.default }}" placeholder="不填" class="mono"/></td>
+  <td>
+    <textarea name="p_options.{{ r.i }}" rows="2" placeholder="北京=beijing" spellcheck="false"
+              class="mono">{{ r.options }}</textarea>
+    {% if errors.get('p_options.' ~ r.i) %}<div class="field-err">{{ errors['p_options.' ~ r.i] }}</div>{% endif %}
+  </td>
+  <td><textarea name="p_desc.{{ r.i }}" rows="2" placeholder="文档原文摘录" spellcheck="false">{{ r.desc }}</textarea></td>
+  <td class="tick"><button type="button" class="btn quiet danger" data-del-row title="删掉这一行">✕</button></td>
+</tr>
+{% endmacro %}
+
+{% macro field(name, label, value='', hint='', placeholder='', area=0, mono=False, error=None) %}
+<div class="field">
+  <span class="lbl">{{ label }}{% if error %}<span class="field-err">{{ error }}</span>{% endif %}</span>
+  {% if area %}
+  <textarea name="{{ name }}" rows="{{ area }}" placeholder="{{ placeholder }}"
+            {% if mono %}class="mono" spellcheck="false"{% endif %}>{{ value }}</textarea>
+  {% else %}
+  <input type="text" name="{{ name }}" value="{{ value }}" placeholder="{{ placeholder }}"
+         {% if mono %}class="mono" spellcheck="false"{% endif %}/>
+  {% endif %}
+  {% if hint %}<span class="hint">{{ hint }}</span>{% endif %}
+</div>
+{% endmacro %}
+
+{% block body %}
+{# 轮询契约取一份带兜底的值：三种入口（新增 / 编辑 / 校验失败回显）都得
+   给出一张能渲染的表，缺一个键就整页 500 —— 那是页面问题，不是数据问题。 #}
+{% set poll = spec.get('poll') or {} %}
+<div class="page-head">
+  <h1>{{ '编辑模型' if editing else '新增模型' }}</h1>
+  <p>一个模型在库里就是一行记录：<b>怎么发</b>、<b>能填什么</b>、<b>怎么算钱</b>。
+     这张表把三样都能改。参数那一栏是重点 —— 类型决定调用页上给出什么控件，
+     所以这里选「单选（下拉）」，调用页就会渲染成下拉，不会再退化成输入框。</p>
+</div>
+
+{% if errors %}
+<div class="alert danger" style="margin-bottom:var(--s5)">
+  <b>还有 {{ errors|length }} 处要改</b>
+  <div>
+    <ul style="margin:6px 0 0;padding-left:18px">
+      {% for key, why in errors.items() %}<li><code class="mono">{{ key }}</code> {{ why }}</li>{% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+<form method="post" action="{{ ('/models/' ~ model_id ~ '/edit') if editing else '/models/new' }}"
+      data-model-form>
+  <datalist id="group-list">
+    <option value="input"></option><option value="parameters"></option>
+    <option value="messages"></option><option value="options"></option>
+  </datalist>
+  <datalist id="cap-list">
+    {% for c in capabilities %}<option value="{{ c }}"></option>{% endfor %}
+  </datalist>
+
+  <section class="grid c2" style="margin-bottom:var(--s5)">
+    <div class="panel">
+      <div class="panel-head"><h3>它是什么</h3><span class="sub">身份与归属</span></div>
+      <div class="panel-body">
+        {% if editing %}
+        {{ field('provider', '供应商', value=spec.provider, error=errors.get('provider')) }}
+        {{ field('key', 'API 模型名', value=spec.key, mono=True, error=errors.get('key')) }}
+        <p class="hint" style="margin:-8px 0 var(--s4)">
+          身份是 <code class="mono">{{ model_id }}</code>，<b>不可改</b>：改了就是另一个模型，
+          任务记录、计费口径、「这个能力的默认模型」全挂在它身上。要换名字请删掉重建。
+        </p>
+        {% else %}
+        <div class="field">
+          <span class="lbl">供应商{% if errors.get('provider') %}<span class="field-err">{{ errors['provider'] }}</span>{% endif %}</span>
+          <select name="provider">
+            <option value="">选一个供应商</option>
+            {% for p in providers %}
+            <option value="{{ p.code }}" {% if spec.provider == p.code %}selected{% endif %}>
+              {{ p.name }} · {{ p.code }}</option>
+            {% endfor %}
+          </select>
+          <span class="hint">模型挂在供应商下面，因为请求要拼它的 Base URL、用它的 Key。</span>
+        </div>
+        {{ field('key', 'API 模型名', value=spec.key, mono=True, placeholder='wan2.7-t2v-2026-06-12',
+                 hint='文档里逐字给出的那个字符串（请求体里的 model 字段），不是页面显示名。',
+                 error=errors.get('key')) }}
+        {% endif %}
+        {{ field('name', '显示名', value=spec.name, placeholder='留空就用 API 模型名') }}
+        {{ field('capability', '能力分类', value=spec.capability, mono=True, placeholder='image.t2i',
+                 hint='决定它出现在哪个分类下、哪个能力能选到它。库里已有：' ~ capabilities|join('、'),
+                 error=errors.get('capability')) }}
+        <label class="check" style="margin-top:var(--s4)">
+          <input type="checkbox" name="enabled" value="1" {% if spec.enabled %}checked{% endif %}/>
+          启用（新模型默认停用：参数对着文档核过再开，免得页面给出一个错的控件）
+        </label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>怎么发</h3><span class="sub">method / path / 同步或轮询</span></div>
+      <div class="panel-body">
+        <div class="field">
+          <span class="lbl">调用模式{% if errors.get('mode') %}<span class="field-err">{{ errors['mode'] }}</span>{% endif %}</span>
+          <select name="mode" data-mode-select>
+            {% for value, text in modes %}
+            <option value="{{ value }}" {% if spec.mode == value %}selected{% endif %}>{{ text }}</option>
+            {% endfor %}
+          </select>
+          <span class="hint">异步任务：提交拿到 <code class="mono">task_id</code>，再按下面的契约轮询取结果。</span>
+        </div>
+        <div class="field inline">
+          <div>
+            <span class="lbl">请求方法</span>
+            <select name="method">
+              {% for m in ['POST', 'GET', 'PUT'] %}
+              <option value="{{ m }}" {% if spec.method == m %}selected{% endif %}>{{ m }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <span class="lbl">传输{% if errors.get('transport') %}<span class="field-err">{{ errors['transport'] }}</span>{% endif %}</span>
+            <select name="transport">
+              {% for value, text in transports %}
+              <option value="{{ value }}" {% if spec.transport == value %}selected{% endif %}>{{ text }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        {{ field('path', '请求路径', value=spec.path, mono=True,
+                 placeholder='/api/v1/services/aigc/video-generation/video-synthesis',
+                 hint='相对供应商 Base URL；也可以直接写 http 开头的绝对地址。',
+                 error=errors.get('path')) }}
+
+        <details class="adv" data-poll-block {% if spec.mode == 'async_task' %}open{% endif %}>
+          <summary>轮询契约（异步任务用）</summary>
+          {{ field('poll_path', '轮询路径', value=poll.get('path', '') or '/api/v1/tasks/{task_id}',
+                   mono=True, hint='{task_id} 会被替成提交时拿到的那个 id。') }}
+          {{ field('poll_task_id_path', 'task_id 在响应里的位置', value=poll.get('task_id_path', '') or 'output.task_id', mono=True) }}
+          {{ field('poll_status_path', '状态字段位置', value=poll.get('status_path', '') or 'output.task_status', mono=True) }}
+          <div class="field inline">
+            <div>
+              <span class="lbl">轮询间隔（秒）</span>
+              <input type="text" name="poll_interval" value="{{ poll.get('interval_seconds', '') or 5 }}" class="mono"/>
+            </div>
+            <div>
+              <span class="lbl">超时（秒）</span>
+              <input type="text" name="poll_timeout" value="{{ poll.get('timeout_seconds', '') or 900 }}" class="mono"/>
+            </div>
+          </div>
+          {{ field('poll_succeeded', '成功状态值', value=poll.get('succeeded', [])|join(' '),
+                   mono=True, hint='多个用空格或逗号分开，默认 SUCCEEDED。') }}
+          {{ field('poll_failed', '失败状态值', value=poll.get('failed', [])|join(' '),
+                   mono=True, hint='默认 FAILED。') }}
+        </details>
+
+        <details class="adv">
+          <summary>额外请求头（JSON）</summary>
+          <p class="hint" style="margin:0 0 var(--s3)">
+            <code class="mono">Authorization</code> 不用写 —— 它由供应商的 Key 自动带上，
+            写在这里反而会和 Key 打架。
+          </p>
+          <textarea name="headers" rows="4" class="mono" spellcheck="false"
+                    placeholder='{"X-DashScope-Async": "enable"}'>{{ spec.headers }}</textarea>
+          {% if errors.get('headers') %}<div class="field-err">{{ errors['headers'] }}</div>{% endif %}
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" style="margin-bottom:var(--s5)">
+    <div class="panel-head">
+      <h3>能填什么</h3>
+      <span class="sub">参数路径 ⇄ 请求体；类型 ⇄ 调用页的控件</span>
+    </div>
+    <div class="panel-body">
+      <p class="hint" style="margin:0 0 var(--s3)">
+        <b>参数路径</b>用点号写出它在请求体里的位置（<code class="mono">input.prompt</code>）——
+        调用页会照着它拼请求，写错了请求体就会长歪。
+        <b>可选值</b>一行一个，<code class="mono">显示名=提交值</code> 只在两者不同时才需要。
+        <b>分组留空</b>就按参数路径的第一段分（<code class="mono">parameters.resolution</code>
+        归到"参数"），只有想让它和请求体层级不一致时才手填。
+      </p>
+      <div class="tablewrap">
+        <table class="data rowedit" data-rows data-next-index="{{ spec.rows|length }}">
+          <thead>
+            <tr>
+              <th>参数路径</th><th>显示名</th><th>类型</th><th>分组</th>
+              <th class="tick">必填</th><th class="tick">计费</th><th class="tick">高级</th>
+              <th>默认值</th><th>可选值</th><th>说明（文档原文）</th><th></th>
+            </tr>
+          </thead>
+          <tbody data-rows-body>
+            {% for r in spec.rows %}{{ param_row(r) }}{% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="toolbar" style="margin-top:var(--s3)">
+        <button type="button" class="btn" data-add-row>＋ 再加一行参数</button>
+        <span class="hint">
+          「计费」打钩的参数会在调用页上带琥珀点，并参与费用预估；
+          「高级」打钩的收进折叠区，默认不打扰人。
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid c2" style="margin-bottom:var(--s5)">
+    <div class="panel">
+      <div class="panel-head"><h3>怎么算钱</h3><span class="sub">只用于预估与展示</span></div>
+      <div class="panel-body">
+        <div class="field">
+          <span class="lbl">计价单位{% if errors.get('pricing_unit') %}<span class="field-err">{{ errors['pricing_unit'] }}</span>{% endif %}</span>
+          <select name="pricing_unit">
+            {% for value, text in cost_units %}
+            <option value="{{ value }}" {% if spec.pricing_unit == value %}selected{% endif %}>{{ text }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {{ field('pricing_unit_price', '单价（元）', value=spec.pricing_unit_price, mono=True,
+                 placeholder='0.7', hint='按上面的单位计。真实账单以远端 usage 为准，这里只用来预估。',
+                 error=errors.get('pricing_unit_price')) }}
+        {{ field('pricing_notes', '计价说明', value=spec.pricing_notes,
+                 placeholder='如：1080P 0.7 元/秒，720P 0.35 元/秒') }}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>备注与出处</h3><span class="sub">给未来的自己留话</span></div>
+      <div class="panel-body">
+        {{ field('notes', '备注', value=spec.notes, area=3,
+                 placeholder='如：模型名与文档不一致，待确认') }}
+        {{ field('doc_url', '文档地址', value=spec.doc_url, mono=True,
+                 placeholder='https://help.aliyun.com/…') }}
+      </div>
+    </div>
+  </section>
+
+  <div class="toolbar">
+    <button class="btn primary" type="submit">保存</button>
+    <a class="btn ghost" href="{{ ('/models/' ~ model_id) if editing else '/models' }}">取消</a>
+    {% if editing and spec.verified %}
+    <span class="hint">这个模型现在是「已核对」。只改备注不影响；<b>参数一改就会退回「待核对」</b>，
+      确认无误后在模型页重新盖章。</span>
+    {% endif %}
+  </div>
+
+  <template data-row-template>
+  {{ param_row({'i': '__i__', 'key': '', 'label': '', 'type': 'text', 'group': '',
+                'required': False, 'billed': False, 'advanced': False, 'default': '',
+                'options': '', 'desc': ''}) }}
+</template>
+</form>
+{% endblock %}

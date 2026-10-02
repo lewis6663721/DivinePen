@@ -120,6 +120,7 @@
     <div class="panel">
       <div class="panel-head"><h3>操作</h3></div>
       <div class="panel-body stack-v">
+        <a class="btn primary" href="/models/{{ model.id }}/edit">编辑这个模型</a>
         <form method="post" action="/models/{{ model.id }}/toggle">
           <input type="hidden" name="enabled" value="{{ 0 if model.enabled else 1 }}"/>
           <button class="btn {{ 'ghost' if model.enabled else 'primary' }}" type="submit">
@@ -127,6 +128,31 @@
           </button>
         </form>
         <div class="hint">停用后 Router 不会再选中它；记录与参数都还在。</div>
+
+        <form method="post" action="/models/{{ model.id }}/verify">
+          <input type="hidden" name="verified" value="{{ 0 if model.verified else 1 }}"/>
+          <button class="btn ghost" type="submit">
+            {{ '退回待核对' if model.verified else '标记为已核对' }}
+          </button>
+        </form>
+        <div class="hint">
+          核对是<b>人给</b>的印记：参数逐字对着文档看过，才配挂「已核对」。
+          页面上一改参数，它会自动退回待核对。
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>删除</h3><span class="sub">不可撤销</span></div>
+      <div class="panel-body stack-v">
+        <form method="post" action="/models/{{ model.id }}/delete"
+              data-confirm="删除 {{ model.id }}？这个操作不可撤销。若它被任务记录引用过，会被拦下并建议改用「停用」。">
+          <button class="btn quiet danger" type="submit">删除该模型</button>
+        </form>
+        <div class="hint">
+          被任务记录引用过的模型删不掉 —— 那些记录里存的是模型名，
+          删了它们就会指向一个查不到的模型。那种情况请用「停用」。
+        </div>
       </div>
     </div>
   </div>

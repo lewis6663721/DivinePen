@@ -286,6 +286,38 @@ class Repo:
                     return True
         return False
 
+    async def model_in_use(self, model_id: str) -> int:
+        """有多少条任务记录指向这个模型。
+
+        这是删除前的闸门：任务记录里存的是模型名（不是外键），删掉模型之后
+        历史任务就会显示一个库里查不到的名字 —— 账单对不上账，往往就是从
+        这种"少了一行"开始的。有引用就只让停用，不让删。
+        """
+        provider, _, key = model_id.partition(":")
+        row = await self.db.query_one(
+            "SELECT COUNT(*) AS n FROM dp_task WHERE provider = ? AND model = ?", (provider, key)
+        )
+        return int((row or {}).get("n") or 0)
+
+    async def set_model_verified(self, model_id: str, verified: bool) -> None:
+        """核对印记是**人**给的：参数与文档逐字对过，才配挂「已核对」。
+
+        页面一改参数就自动退回待核对，改完由人在这里重新盖章；
+        没有这一下，改过一次的模型就永远挂着「待核对」，这个标记也就废了。
+        """
+        await self.db.execute(
+            "UPDATE dp_model SET verified = ?, updated_at = ? WHERE id = ?",
+            (int(verified), now_iso(), model_id),
+        )
+
+    async def delete_model(self, model_id: str) -> None:
+        await self.db.execute("DELETE FROM dp_model WHERE id = ?", (model_id,))
+
+    async def capabilities(self) -> list[str]:
+        """库里出现过的能力分类，给新增模型时的输入建议用。"""
+        rows = await self.db.query("SELECT DISTINCT capability FROM dp_model")
+        return sorted(r["capability"] for r in rows if r.get("capability"))
+
     # 凭据 --------------------------------------------------------
     # 一个供应商可以配多把钥匙（额度分开的账号、正式号与测试号并存），
     # 但**调用时只能挑一把**：is_default 就是那一把。所有"拿钥匙"的路径

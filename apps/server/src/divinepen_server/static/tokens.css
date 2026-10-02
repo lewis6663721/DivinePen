@@ -326,3 +326,22 @@ hr{border:0;border-top:1px solid var(--line-soft);margin:var(--s6) 0}
   transition:background .16s,color .16s;
 }
 .toolbar .clearf:hover{color:var(--ink);background:var(--surface-2)}
+
+/* ── 参数行编辑器 ───────────────────────────────────────────────
+   一行是一个参数、十一列 —— 它必须是"表格"而不是一摞表单字段，
+   因为要看的是"这几行的类型 / 必填 / 计费各是什么"，那是一次横向比较。
+   格子里的控件比常规控件矮一档（30px）：一行行扫的时候，控件越高，
+   能同时看见的行数越少，而"一眼看完所有参数"正是这张表的用处。 */
+.rowedit{margin:0}
+.rowedit td{padding:4px 6px;vertical-align:top}
+.rowedit th{white-space:nowrap}
+.rowedit th.tick,.rowedit td.tick{width:46px;text-align:center}
+.rowedit input[type=text],.rowedit input[type=number],.rowedit select,
+.rowedit textarea{padding:4px 8px;font-size:12.5px;min-height:30px}
+.rowedit input[type=text],.rowedit select{height:30px}
+.rowedit textarea{line-height:1.45;resize:vertical}
+.rowedit input[type=checkbox]{width:15px;height:15px;margin-top:7px;accent-color:var(--signal)}
+.rowedit .btn{height:28px;padding:0 9px;font-size:12px}
+.rowedit .field-err{font-size:11.5px;margin-top:3px}
+.rowedit .mono{font-size:12px}
+.rowedit + .toolbar{margin-top:var(--s3)}

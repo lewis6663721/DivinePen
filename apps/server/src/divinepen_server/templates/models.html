@@ -29,15 +29,16 @@
       {% if selected.capability or selected.provider %}<a class="clearf" href="/models" title="清空筛选">✕ 清空</a>{% endif %}
     </form>
     <div class="spacer" style="margin-left:auto"></div>
+    <a class="btn" href="/models/new">＋ 新增模型</a>
     <form method="post" action="/catalog/reseed"
           data-confirm="重新导入目录：默认只补新增、跳过已有记录，不会覆盖你改过的参数。继续？">
       <input type="hidden" name="force" value="0"/>
-      <button class="btn" type="submit">从目录补齐新增</button>
+      <button class="btn ghost" type="submit">从目录补齐新增</button>
     </form>
     <form method="post" action="/catalog/reseed"
           data-confirm="强制重写：会用目录覆盖你在页面上改过的全部参数。确定？">
       <input type="hidden" name="force" value="1"/>
-      <button class="btn ghost" type="submit">强制按目录重写</button>
+      <button class="btn quiet danger" type="submit">强制按目录重写</button>
     </form>
   </div>
 
@@ -101,7 +102,10 @@
           </td>
           <td class="tight">{% if m.verified %}{{ chip('已核对', 'ok') }}{% else %}{{ chip('待核对', 'bill') }}{% endif %}</td>
           <td class="tight">{% if m.enabled %}{{ chip('启用', 'ok') }}{% else %}{{ chip('停用', 'danger') }}{% endif %}</td>
-          <td class="tight"><a class="btn ghost" href="/models/{{ m.id }}">参数</a></td>
+          <td class="tight">
+            <a class="btn ghost" href="/models/{{ m.id }}">参数</a>
+            <a class="btn ghost" href="/models/{{ m.id }}/edit">编辑</a>
+          </td>
         </tr>
         {% endfor %}
       </tbody>

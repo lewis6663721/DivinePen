@@ -36,6 +36,7 @@ from divinepen.agents import discover_plugins
 from divinepen.core.ports import ResolvePolicy
 from divinepen.core.specs import FieldType, ParamsSchema, TaskStatus
 
+from . import modelform as mf
 from . import runtime as rt
 from .catalog import category_label, category_sort
 from .db import dumps
@@ -644,6 +645,134 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             counts=await nav_counts(instance),
         )
 
+    # ── 模型的增 / 改 / 删 ─────────────────────────────────────
+    # 目录是 seed 进来的，但目录不可能覆盖全部现实：自建服务、供应商刚上线的
+    # 型号、内部代理，都得有个地方登记。所以这里给全量 CRUD，而不是只让页面
+    # 开关一下。两个刻意留窄的口子：
+    #   ① 身份（provider:key）不可改 —— 改了就是另一个模型，任务记录、
+    #      计费口径、"这个能力的默认模型"全挂在它身上；
+    #   ② 被任务记录引用过的模型不能删 —— 只能停用。删掉它，历史任务就会
+    #      显示一个查不到的模型名，账单对不上账常常就是从这种"少了一行"开始的。
+
+    async def model_form_ctx(instance: rt.App) -> dict[str, Any]:
+        return {
+            "providers": await instance.repo.providers(),
+            "capabilities": await instance.repo.capabilities(),
+            "param_types": mf.PARAM_TYPES,
+            "modes": mf.MODES,
+            "transports": mf.TRANSPORTS,
+            "cost_units": mf.COST_UNITS,
+        }
+
+    @app.get("/models/new", response_class=HTMLResponse)
+    async def model_new(request: Request):
+        instance = get_app()
+        return render(
+            request,
+            "model_form.html",
+            title="新增模型",
+            spec=mf.spec_to_form({}),
+            editing=False,
+            errors={},
+            **await model_form_ctx(instance),
+            counts=await nav_counts(instance),
+        )
+
+    @app.post("/models/new", response_class=HTMLResponse)
+    async def model_create(request: Request):
+        instance = get_app()
+        form = await request.form()
+        try:
+            spec = mf.build_spec(form)
+        except mf.FormError as exc:
+            return render(
+                request, "model_form.html", status_code=422, title="新增模型",
+                spec=mf.echo_form(form), editing=False, errors=exc.errors,
+                **await model_form_ctx(instance), counts=await nav_counts(instance),
+            )
+        model_id = f"{spec.provider}:{spec.key}"
+        if await instance.repo.model(model_id):
+            return render(
+                request, "model_form.html", status_code=422, title="新增模型",
+                spec=mf.echo_form(form), editing=False,
+                errors={"key": f"{model_id} 已经在库里了；同一供应商下模型名唯一，要改就去编辑它"},
+                **await model_form_ctx(instance), counts=await nav_counts(instance),
+            )
+        await instance.repo.upsert_model(spec, force=True)
+        note = f"已新增 {model_id}（{len(spec.params.fields())} 个参数）"
+        if not spec.enabled:
+            note += "；新模型一律先停用，参数对着文档核过再启用"
+        return RedirectResponse(flash_url(f"/models/{model_id}", note), 303)
+
+    @app.get("/models/{model_id:path}/edit", response_class=HTMLResponse)
+    async def model_edit(request: Request, model_id: str):
+        instance = get_app()
+        model = await instance.repo.model(model_id)
+        if not model:
+            return render(request, "error.html", status_code=404, title="找不到模型",
+                          detail=f"库里没有这个模型：{model_id}",
+                          counts=await nav_counts(instance))
+        return render(
+            request, "model_form.html", title=f"编辑 {model['name']}",
+            spec=mf.spec_to_form(model), editing=True, model_id=model_id, errors={},
+            **await model_form_ctx(instance), counts=await nav_counts(instance),
+        )
+
+    @app.post("/models/{model_id:path}/edit", response_class=HTMLResponse)
+    async def model_update(request: Request, model_id: str):
+        instance = get_app()
+        model = await instance.repo.model(model_id)
+        if not model:
+            return render(request, "error.html", status_code=404, title="找不到模型",
+                          detail=f"库里没有这个模型：{model_id}",
+                          counts=await nav_counts(instance))
+        form = await request.form()
+        try:
+            spec = mf.build_spec(form, existing=model)
+        except mf.FormError as exc:
+            return render(
+                request, "model_form.html", status_code=422, title=f"编辑 {model['name']}",
+                spec=mf.echo_form(form), editing=True, model_id=model_id, errors=exc.errors,
+                **await model_form_ctx(instance), counts=await nav_counts(instance),
+            )
+        if f"{spec.provider}:{spec.key}" != model_id:
+            return RedirectResponse(
+                flash_url(f"/models/{model_id}/edit",
+                          "供应商与模型名是身份，不能改；要换名字请删掉重建。", "danger"),
+                303,
+            )
+        await instance.repo.upsert_model(spec, force=True)
+        note = f"已保存 {model_id}"
+        if model["verified"] and not spec.meta["verified"]:
+            note += "；参数动过了，核对印记已退回「待核对」"
+        return RedirectResponse(flash_url(f"/models/{model_id}", note), 303)
+
+    @app.post("/models/{model_id:path}/verify")
+    async def model_verify(request: Request, model_id: str):
+        instance = get_app()
+        form = await request.form()
+        ok = form.get("verified") == "1"
+        await instance.repo.set_model_verified(model_id, ok)
+        return RedirectResponse(
+            flash_url(f"/models/{model_id}",
+                      "已标记为「已核对」——参数逐字对过文档了" if ok
+                      else "已退回「待核对」"), 303,
+        )
+
+    @app.post("/models/{model_id:path}/delete")
+    async def model_delete(request: Request, model_id: str):
+        instance = get_app()
+        used = await instance.repo.model_in_use(model_id)
+        if used:
+            return RedirectResponse(
+                flash_url(f"/models/{model_id}",
+                          f"{model_id} 被 {used} 条任务记录引用，删掉它们就会指向一个查不到的"
+                          "模型。要下线请改用「停用」。", "danger"),
+                303,
+            )
+        await instance.repo.delete_model(model_id)
+        return RedirectResponse(flash_url("/models", f"已删除 {model_id}"), 303)
+
     @app.get("/models/{model_id:path}", response_class=HTMLResponse)
     async def model_detail(request: Request, model_id: str):
         instance = get_app()
@@ -836,10 +965,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # 已配置的排前面（用户 90% 的时间只关心这一撮），组内保持目录顺序。
         rows.sort(key=lambda r: (not r["configured"], not r["p"].get("enabled")))
 
-        # 只有一家两家没配好时，直接替你展开 —— 少点一次。
-        if 0 < n_missing <= 3:
-            for r in rows:
-                r["open"] = not r["configured"]
 
         if scope == "configured":
             rows = [r for r in rows if r["configured"]]

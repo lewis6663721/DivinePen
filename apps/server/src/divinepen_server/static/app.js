@@ -198,4 +198,65 @@
       }
     } catch {}
   }
+
+  // ── 参数行编辑器（模型表单）────────────────────────────────
+  // 行号写在字段名里（p_key.3）。所以删掉中间一行只会留一个空洞，
+  // 不会让别的行的值滑到别人头上 —— 和"按提交位置对齐"的做法差别很大，
+  // 而勾选框不勾就不提交这个特性，会让后者悄无声息地错位。
+  document.querySelectorAll("[data-rows]").forEach((table) => {
+    const scope = table.closest("form") || document;
+    const body = table.querySelector("[data-rows-body]");
+    const tpl = scope.querySelector("template[data-row-template]");
+    const addBtn = scope.querySelector("[data-add-row]");
+    if (!body || !tpl) return;
+
+    const nextIndex = () => {
+      const n = Number(table.dataset.nextIndex || 0);
+      table.dataset.nextIndex = String(n + 1);
+      return n;
+    };
+
+    if (addBtn) {
+      addBtn.addEventListener("click", () => {
+        const frag = tpl.content.cloneNode(true);
+        const i = nextIndex();
+        frag.querySelectorAll("[name]").forEach((el) => {
+          el.name = el.name.replaceAll("__i__", i);
+        });
+        body.appendChild(frag);
+        const first = body.lastElementChild.querySelector("input,textarea,select");
+        if (first) first.focus();
+      });
+    }
+
+    table.addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-del-row]");
+      if (!btn) return;
+      const row = btn.closest("tr");
+      if (!row) return;
+      if (body.querySelectorAll("tr").length > 1) {
+        row.remove();
+        return;
+      }
+      // 最后一行不删，清空就好：表里总得留一个空行给"下一行"，
+      // 否则删完最后一个参数，人反而没地方写了。
+      row.querySelectorAll("input,textarea").forEach((el) => {
+        if (el.type === "checkbox") el.checked = false;
+        else el.value = "";
+      });
+      row.querySelectorAll("select").forEach((el) => {
+        el.selectedIndex = 0;
+      });
+    });
+  });
+
+  // 选了异步任务就把轮询契约展开 —— 那是接下来必须填的东西。只开不关。
+  document.querySelectorAll("[data-mode-select]").forEach((select) => {
+    const form = select.closest("form");
+    const block = form && form.querySelector("[data-poll-block]");
+    if (!block) return;
+    select.addEventListener("change", () => {
+      if (select.value === "async_task") block.setAttribute("open", "open");
+    });
+  });
 })();

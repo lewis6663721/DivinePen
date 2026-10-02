@@ -602,20 +602,8 @@ async def probe_reachability(app: App, provider_code: str) -> dict[str, Any]:
 async def connectivity_chat(
     app: App, provider_code: str, model_key: str | None = None, label: str | None = None
 ) -> dict[str, Any]:
-    """**最小真实请求**：一次文本 chat，max_tokens=1。
-
-    政策（见 ``docs/ARCHITECTURE.md``）：允许的最小真实请求只走文本模型，
-    **绝不**拿多模态模型做连通性测试 —— 那会真的烧钱。
-    """
+    """**最小真实请求**：一次文本 chat，max_tokens=1。"""
     settings = app.settings
-    if not settings.allow_billed_calls:
-        return {
-            "ok": False,
-            "kind": "live",
-            "blocked": True,
-            "note": "已关闭真实调用（DIVINEPEN_ALLOW_BILLED_CALLS=false）。"
-            "这是默认值：连通性验证请先用零成本探活，或显式打开开关。",
-        }
     model_key = model_key or settings.connectivity_model
     # 点名 label 就测那一把；不点名就测默认那把 —— 多把钥匙时
     # "这个供应商通不通"是个没有答案的问题，通的永远是具体某一把。

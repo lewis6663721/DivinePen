@@ -38,7 +38,6 @@ async def _status() -> int:
     print(f"数据库        {settings.db_label}")
     print(f"凭据加密      {instance.box.backend}")
     print(f"要求登录      {settings.auth_required}")
-    print(f"真实计费调用  {settings.allow_billed_calls}")
     print(f"连通性模型    {settings.connectivity_model}")
     print(f"能力          {', '.join(instance.registry.ids()) or '（空）'}")
     print(f"模型          {overview['models']}")

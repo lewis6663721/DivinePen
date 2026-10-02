@@ -221,8 +221,7 @@
 
   {% if picker.provider and not picker.provider.has_key %}
   <div class="alert bill"><b>未配 Key</b>
-    <div><b>{{ picker.provider.name }}</b> 还没有 API Key。预演照常可用（零成本，只看请求体）；
-      真实调用会被拦下。去 <a href="/credentials">配置管理</a> 补上。</div></div>
+    <div><b>{{ picker.provider.name }}</b> 还没有 API Key。去 <a href="/credentials">配置管理</a> 补上。</div></div>
   {% endif %}
   {% for w in picker.warnings %}
   <div class="alert bill"><b>路由提示</b><div>{{ w }}</div></div>

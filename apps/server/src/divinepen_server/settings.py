@@ -48,9 +48,7 @@ class Settings:
     allow_register: bool = True
     #: 默认关闭登录（本地开发直接看页面）。上线前置 true。
     auth_required: bool = False
-    #: 默认关闭真实计费调用。
-    allow_billed_calls: bool = False
-    #: 连通性测试用的默认文本模型（只测文本，绝不测多模态）。
+    #: 连通性测试用的默认文本模型。
     connectivity_model: str = "qwen-plus"
     credential_key: str = ""
     oss_enabled: bool = False
@@ -82,7 +80,7 @@ class Settings:
             session_max_age_hours=int(_env("SESSION_MAX_AGE_HOURS", "6") or 6),
             allow_register=_flag("ALLOW_REGISTER", True),
             auth_required=_flag("AUTH_REQUIRED", False),
-            allow_billed_calls=_flag("ALLOW_BILLED_CALLS", False),
+
             connectivity_model=_env("CONNECTIVITY_MODEL", "qwen-plus"),
             credential_key=_env("CREDENTIAL_KEY"),
             oss_enabled=_flag("OSS_ENABLED"),

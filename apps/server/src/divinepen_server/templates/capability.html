@@ -75,12 +75,8 @@
           </p>
         {% endif %}
         <div class="actions">
-          <button class="btn primary" type="submit" data-confirm="提交执行：能力在后台跑完，进度和产物都在任务中心。继续？">{{ '后台执行' if cap.async_task else '执行' }}</button>
-          {% if cap.cost and cap.cost.unit and cap.cost.unit != 'free' %}
-          <label class="check"><input type="checkbox" name="confirm" value="1"/> 我确认这次调用会产生费用</label>
-          {% endif %}
-          <button class="btn quiet" type="submit" formaction="/capabilities/{{ cap.id }}/dry-run"
-                  data-confirm="预演：不联网、不扣费，只看将要发出的请求体。继续？">预演</button>
+          <button class="btn primary" type="submit">{{ '后台执行' if cap.async_task else '执行' }}</button>
+          <button class="btn quiet" type="submit" formaction="/capabilities/{{ cap.id }}/dry-run">预演</button>
           <span class="hint">执行去任务中心看进度；预演只是先看一眼请求体</span>
         </div>
       </form>

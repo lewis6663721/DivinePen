@@ -52,7 +52,6 @@
       {% else %}
       <div class="who">本地开发模式 · <b>未启用登录</b></div>
       <div class="who" style="font-size:11px;color:var(--ink-4)">
-        真实计费调用：{{ '已开启' if settings.allow_billed_calls else '关闭' }} ·
         凭据加密：{{ encryption if encryption is defined else 'plain' }}
       </div>
       {% endif %}

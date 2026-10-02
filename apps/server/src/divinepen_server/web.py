@@ -394,7 +394,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "capabilities": instance.registry.ids(),
                 "encryption": instance.box.backend,
                 "auth_required": settings.auth_required,
-                "billed_calls": settings.allow_billed_calls,
             }
         )
 
@@ -1306,17 +1305,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.post("/capabilities/{capability_id}/run")
-    async def capability_run(request: Request, capability_id: str, confirm: str = Form("0")):
+    async def capability_run(request: Request, capability_id: str):
         instance = get_app()
         if not instance.registry.has(capability_id):
             return render(request, "error.html", status_code=404, title="找不到能力",
                           detail=f"未注册的能力：{capability_id}")
         cap = instance.registry.get(capability_id)
-        billed = not cap.manifest.cost.is_free
-        if billed and confirm != "1":
-            return RedirectResponse(
-                flash_url(f"/capabilities/{capability_id}",
-                          "该能力会产生费用，需勾选确认后再提交", "bill"), 303)
         form = await request.form()
         raw = {k: v for k, v in form.items() if not k.startswith("_") and v != ""}
         picker, _, payload = await _capability_input(instance, cap, raw, submitted=True)
@@ -1328,7 +1322,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
              "status": "PENDING", "payload": payload,
              "user_id": getattr(request.state, "user", None) and request.state.user["id"]}
         )
-        _spawn(_run_background(instance, task_id, capability_id, payload, billed_allowed=confirm == "1"))
+        _spawn(_run_background(instance, task_id, capability_id, payload, billed_allowed=True))
         return RedirectResponse(flash_url(f"/tasks/{task_id}", "已提交后台执行，去任务中心看进度"), 303)
 
     @app.post("/tasks/{task_id}/resume")
@@ -1356,7 +1350,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
         await instance.repo.update_task(task_id, status="PENDING", result=dumps({}))
         _spawn(_run_background(instance, task_id, row["capability_id"],
-                               row.get("payload_obj") or {}, billed_allowed=False,
+                               row.get("payload_obj") or {}, billed_allowed=True,
                                resume=resume, approvals=approvals))
         return RedirectResponse(flash_url(f"/tasks/{task_id}", "已带着你的确认继续执行"), 303)
 

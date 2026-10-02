@@ -82,9 +82,7 @@
     <option value="input"></option><option value="parameters"></option>
     <option value="messages"></option><option value="options"></option>
   </datalist>
-  <datalist id="cap-list">
-    {% for c in capabilities %}<option value="{{ c }}"></option>{% endfor %}
-  </datalist>
+
 
   <section class="grid c2" style="margin-bottom:var(--s5)">
     <div class="panel">
@@ -114,9 +112,22 @@
                  error=errors.get('key')) }}
         {% endif %}
         {{ field('name', '显示名', value=spec.name, placeholder='留空就用 API 模型名') }}
-        {{ field('capability', '能力分类', value=spec.capability, mono=True, placeholder='image.t2i',
-                 hint='决定它出现在哪个分类下、哪个能力能选到它。库里已有：' ~ capabilities|join('、'),
-                 error=errors.get('capability')) }}
+        <div class="field">
+          <span class="lbl">能力分类{% if errors.get('capability') %}<span class="field-err">{{ errors['capability'] }}</span>{% endif %}</span>
+          <select name="capability">
+            <option value="">选一个分类</option>
+            {% for group in capabilities_grouped %}
+            <optgroup label="{{ group.broad }}">
+              {% for cap in group.caps %}
+              <option value="{{ cap.key }}" {% if spec.capability == cap.key %}selected{% endif %}>
+                {{ cap.label }}（{{ cap.key }}）
+              </option>
+              {% endfor %}
+            </optgroup>
+            {% endfor %}
+          </select>
+          <span class="hint">决定它出现在哪个分类下、哪个能力能选到它。</span>
+        </div>
         <label class="check" style="margin-top:var(--s4)">
           <input type="checkbox" name="enabled" value="1" {% if spec.enabled %}checked{% endif %}/>
           启用（新模型默认停用：参数对着文档核过再开，免得页面给出一个错的控件）

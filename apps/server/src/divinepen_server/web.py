@@ -38,7 +38,7 @@ from divinepen.core.specs import FieldType, ParamsSchema, TaskStatus
 
 from . import modelform as mf
 from . import runtime as rt
-from .catalog import broad_label, broad_sort, category_label, category_sort
+from .catalog import CATEGORY_LABELS, broad_label, broad_sort, category_label, category_sort
 from .db import dumps
 from .settings import Settings, get_settings
 from .store import seed, verify_password
@@ -692,9 +692,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #      显示一个查不到的模型名，账单对不上账常常就是从这种"少了一行"开始的。
 
     async def model_form_ctx(instance: rt.App) -> dict[str, Any]:
+        # 能力分类下拉：合并库里已有的 + catalog 里定义的，去重后按大类分组
+        db_caps = set(await instance.repo.capabilities())
+        all_caps = db_caps | set(CATEGORY_LABELS.keys())
+        # 按 broad category 分组
+        cap_groups: dict[str, list[dict[str, str]]] = {}
+        for cap_key in sorted(all_caps, key=category_sort):
+            prefix = cap_key.split(".", 1)[0]
+            if prefix not in cap_groups:
+                cap_groups[prefix] = []
+            cap_groups[prefix].append({
+                "key": cap_key,
+                "label": category_label(cap_key),
+            })
+        capabilities_grouped = sorted(
+            [{"prefix": k, "broad": broad_label(k + "."), "caps": v} for k, v in cap_groups.items()],
+            key=lambda g: broad_sort(g["prefix"]),
+        )
         return {
             "providers": await instance.repo.providers(),
-            "capabilities": await instance.repo.capabilities(),
+            "capabilities": sorted(all_caps),
+            "capabilities_grouped": capabilities_grouped,
             "param_types": mf.PARAM_TYPES,
             "modes": mf.MODES,
             "transports": mf.TRANSPORTS,

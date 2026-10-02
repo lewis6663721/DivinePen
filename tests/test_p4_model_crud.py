@@ -388,8 +388,7 @@ def test_create_edit_delete_round_trip(client):
     assert f'href="/models/{model_id}"' in listed.text
 
     # 改：把分辨率改成单选、加一个可选值、并启用
-    assert (
-        client.post(
+    resp = client.post(
         f"/models/{model_id}/edit",
         data={
             **_create_payload(provider, "pytest-tmp-model"),
@@ -398,6 +397,7 @@ def test_create_edit_delete_round_trip(client):
         },
         follow_redirects=False,
     )
+    assert resp.status_code == 303
     after = client.get(f"/models/{model_id}")
     assert "1080P" in after.text
     assert "启用" in after.text

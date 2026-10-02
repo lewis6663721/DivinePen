@@ -971,6 +971,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         elif scope == "missing":
             rows = [r for r in rows if not r["configured"]]
 
+        # 连通性测试只许用文本模型 —— 多模态才是真烧钱。
+        chat_models = await instance.catalog.list_models(capability="llm.chat", enabled_only=False)
+
         return render(
             request,
             "credentials.html",
@@ -981,6 +984,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             n_configured=n_configured,
             n_missing=n_missing,
             settings_map=await instance.repo.settings(),
+            chat_models=chat_models,
             encryption=instance.box.backend,
             counts=await nav_counts(instance),
         )
@@ -1107,6 +1111,60 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         instance = get_app()
         await instance.repo.set_setting("cost_alert_threshold", value.strip())
         return RedirectResponse(flash_url("/usage", "已更新费用告警阈值"), 303)
+
+    @app.post("/settings/oss")
+    async def set_oss(
+        request: Request,
+        oss_enabled: str = Form(""),
+        oss_endpoint: str = Form(""),
+        oss_bucket: str = Form(""),
+        oss_access_key_id: str = Form(""),
+        oss_access_key_secret: str = Form(""),
+    ):
+        """保存 OSS 配置到 .env。
+
+        AccessKey Secret 只写不回显 —— 留空表示不改动。
+        """
+        env_path = get_settings().root / ".env"
+        lines: list[str] = []
+        if env_path.exists():
+            lines = env_path.read_text().splitlines()
+
+        # 要写入的键值对。
+        updates: dict[str, str] = {
+            "OSS_ENABLED": "true" if oss_enabled else "false",
+            "OSS_ENDPOINT": oss_endpoint.strip(),
+            "OSS_BUCKET": oss_bucket.strip(),
+            "OSS_ACCESS_KEY_ID": oss_access_key_id.strip(),
+        }
+        # Secret 留空 = 不动原来的值。
+        if oss_access_key_secret:
+            updates["OSS_ACCESS_KEY_SECRET"] = oss_access_key_secret
+
+        for key, value in updates.items():
+            # 找已有的行（含注释掉的也替换）。
+            found = False
+            for i, line in enumerate(lines):
+                stripped = line.lstrip("# ").strip()
+                if stripped.startswith(f"{key}=") or stripped == key:
+                    lines[i] = f"{key}={value}"
+                    found = True
+                    break
+            if not found:
+                lines.append(f"{key}={value}")
+
+        env_path.write_text("\n".join(lines) + "\n")
+
+        # 同步刷新内存中的 settings，让本进程立即生效。
+        s = get_settings()
+        s.oss_enabled = oss_enabled == "1" or oss_enabled == "true"
+        s.oss_endpoint = updates["OSS_ENDPOINT"]
+        s.oss_bucket = updates["OSS_BUCKET"]
+        s.oss_access_key_id = updates["OSS_ACCESS_KEY_ID"]
+        if oss_access_key_secret:
+            s.oss_access_key_secret = oss_access_key_secret
+
+        return RedirectResponse(flash_url("/credentials", "OSS 配置已保存，重启服务后完全生效"), 303)
 
     # ── 用量与费用 ─────────────────────────────────────────────
 

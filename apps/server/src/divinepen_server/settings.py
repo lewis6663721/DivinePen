@@ -56,6 +56,8 @@ class Settings:
     oss_enabled: bool = False
     oss_endpoint: str = ""
     oss_bucket: str = ""
+    oss_access_key_id: str = ""
+    oss_access_key_secret: str = ""
 
     @property
     def db_label(self) -> str:
@@ -86,6 +88,8 @@ class Settings:
             oss_enabled=_flag("OSS_ENABLED"),
             oss_endpoint=_env("OSS_ENDPOINT"),
             oss_bucket=_env("OSS_BUCKET"),
+            oss_access_key_id=_env("OSS_ACCESS_KEY_ID"),
+            oss_access_key_secret=_env("OSS_ACCESS_KEY_SECRET"),
         )
         if not settings.secret_key:
             settings.secret_key = secrets.token_hex(32)

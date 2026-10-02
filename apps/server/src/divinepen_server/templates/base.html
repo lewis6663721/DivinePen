@@ -61,7 +61,14 @@
 
   <main class="main">
     <div class="topbar">
-      <div class="crumb">DivinePen / <b>{{ title }}</b></div>
+      <div class="crumb">
+        {% for c in crumbs %}
+          {% if not loop.first %}<span style="color:var(--ink-4);margin:0 2px">/</span>{% endif %}
+          {% if c.href %}<a href="{{ c.href }}" style="color:var(--ink-2);text-decoration:none">{{ c.label }}</a>
+          {% elif loop.last %}<b>{{ c.label }}</b>
+          {% else %}{{ c.label }}{% endif %}
+        {% endfor %}
+      </div>
       <div class="spacer"></div>
       {% block topbar %}{% endblock %}
     </div>

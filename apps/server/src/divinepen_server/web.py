@@ -341,7 +341,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     return group
         return None
 
+    # ── 面包屑自动生成 ──────────────────────────────────────────
+    # 根据 URL 路径推断面包屑层级。每个页面不用单独传 crumbs，
+    # 只要路径遵循 ``/section`` 或 ``/section/detail`` 的惯例就能自动拼出来。
+    _CRUMB_LABELS: dict[str, str] = {
+        "capabilities": "能力目录",
+        "models": "模型管理",
+        "credentials": "配置管理",
+        "providers": "供应商",
+        "usage": "用量与费用",
+        "tasks": "任务中心",
+        "users": "用户管理",
+        "plugins": "插件管理",
+        "login": "登录",
+        "logout": "退出",
+    }
+
+    def auto_crumbs(path: str, title: str) -> list[dict[str, str]]:
+        crumbs: list[dict[str, str]] = [{"label": "DivinePen", "href": "/"}]
+        parts = [p for p in path.strip("/").split("/") if p]
+        if not parts:
+            return crumbs
+        # 第一段 = 分区
+        section = parts[0]
+        label = _CRUMB_LABELS.get(section, section)
+        if len(parts) == 1:
+            # 分区首页（如 /models）：不链自己
+            crumbs.append({"label": label, "href": ""})
+        else:
+            # 有子级：分区变成链接
+            crumbs.append({"label": label, "href": f"/{section}"})
+            # 第二段 = 详情
+            detail = parts[1]
+            # 特殊后缀处理：/edit
+            if len(parts) >= 3 and parts[-1] == "edit":
+                crumbs.append({"label": detail, "href": f"/{section}/{detail}"})
+                crumbs.append({"label": "编辑", "href": ""})
+            else:
+                crumbs.append({"label": detail, "href": ""})
+        return crumbs
+
     def ctx(request: Request, **extra: Any) -> dict[str, Any]:
+        title = extra.get("title", "")
+        crumbs = extra.pop("crumbs", None) or auto_crumbs(request.url.path, title)
         base = {
             "request": request,
             "nav": NAV,
@@ -351,6 +393,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "level": request.query_params.get("level", "ok"),
             "user": getattr(request.state, "user", None),
             "settings": settings,
+            "crumbs": crumbs,
         }
         base.update(extra)
         return base

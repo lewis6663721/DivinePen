@@ -4,9 +4,9 @@
 {% block body %}
 <div class="page-head">
   <h1>模型管理</h1>
-  <p>库里的每一个模型都是一行记录：<b>怎么发</b>（method / path / headers / 同步或异步轮询）、
-     <b>能填什么</b>（点号路径参数 schema）、<b>怎么算钱</b>（计价单位与计费参数）。
-     参数表格里列的 key 与接口文档逐字对应，点开任意模型可以现场预演请求。</p>
+  <p>每个模型记录了三件事：<b>怎么发</b>（method / path / headers / 同步或异步轮询）、
+     <b>能填什么</b>（参数 schema）、<b>怎么算钱</b>（计价单位与计费参数）。
+     点击分类可折叠/展开，按供应商筛选只看某家的模型。</p>
 </div>
 
 <section>
@@ -14,9 +14,9 @@
     <form method="get" action="/models" class="filterset">
       <span class="flabel">筛选</span>
       <select name="capability" onchange="this.form.submit()">
-        <option value="">全部能力分类</option>
+        <option value="">全部分类</option>
         {% for c in categories %}
-        <option value="{{ c }}" {% if selected.capability == c %}selected{% endif %}>{{ c }}</option>
+        <option value="{{ c.key }}" {% if selected.capability == c.key %}selected{% endif %}>{{ c.label }}</option>
         {% endfor %}
       </select>
       <select name="provider" onchange="this.form.submit()">
@@ -25,7 +25,7 @@
         <option value="{{ p.code }}" {% if selected.provider == p.code %}selected{% endif %}>{{ p.name }}</option>
         {% endfor %}
       </select>
-      <input type="text" data-filter="#model-table" placeholder="过滤模型名 / 参数…"/>
+      <input type="text" data-filter="#model-table" placeholder="过滤模型名…"/>
       {% if selected.capability or selected.provider %}<a class="clearf" href="/models" title="清空筛选">✕ 清空</a>{% endif %}
     </form>
     <div class="spacer" style="margin-left:auto"></div>
@@ -46,13 +46,13 @@
     <div class="metric">
       <div class="k">筛选结果</div>
       <div class="v">{{ total }}<small>个模型</small></div>
-      <div class="d">{{ grouped|length }} 个能力分类</div>
+      <div class="d">{{ grouped|length }} 个大类</div>
     </div>
     <div class="metric">
       <div class="k">参数未核对</div>
       <div class="v">
         {% set ns = namespace(n=0) %}
-        {% for _, rows in grouped %}{% for r in rows if not r.verified %}{% set ns.n = ns.n + 1 %}{% endfor %}{% endfor %}
+        {% for g in grouped %}{% for sub in g.subs %}{% for r in sub.models if not r.verified %}{% set ns.n = ns.n + 1 %}{% endfor %}{% endfor %}{% endfor %}
         {{ ns.n }}<small>个</small>
       </div>
       <div class="d">这些模型的字段可能随文档变动，页面会标出来</div>
@@ -61,7 +61,7 @@
       <div class="k">未接入传输</div>
       <div class="v">
         {% set ns2 = namespace(n=0) %}
-        {% for _, rows in grouped %}{% for r in rows if r.transport != 'http' %}{% set ns2.n = ns2.n + 1 %}{% endfor %}{% endfor %}
+        {% for g in grouped %}{% for sub in g.subs %}{% for r in sub.models if r.transport != 'http' %}{% set ns2.n = ns2.n + 1 %}{% endfor %}{% endfor %}{% endfor %}
         {{ ns2.n }}<small>个</small>
       </div>
       <div class="d">WebSocket 类（TTS / ASR）一期只登记，不给调用入口</div>
@@ -69,48 +69,68 @@
   </div>
 </section>
 
-{% for capability, rows in grouped %}
+{% for group in grouped %}
 <section>
-  <div class="sec-label" style="margin-bottom:var(--s3)">
-    <b>{{ capability }}</b> · {{ rows|length }} 个
-    <a href="/models?capability={{ capability }}" style="color:var(--ink-3);text-decoration:none">只看这类 →</a>
-  </div>
-  <div class="tablewrap">
-    <table class="data" id="model-table">
-      <thead>
-        <tr>
-          <th>模型</th><th>供应商</th><th>发送方式</th><th class="num">参数</th>
-          <th>计费</th><th>核对</th><th>状态</th><th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for m in rows %}
-        <tr class="{% if not m.enabled %}rowdim{% endif %}">
-          <td>
-            <a href="/models/{{ m.id }}">{{ m.name }}</a>
-            <div class="id">{{ m.key }}{% if m.notes %} · {{ m.notes[:42] }}{{ '…' if m.notes|length > 42 }}{% endif %}</div>
-          </td>
-          <td class="tight"><code class="mono">{{ m.provider }}</code></td>
-          <td class="tight">
-            {{ chip(m.method ~ ' ' ~ m.mode) }}
-            {% if m.transport != 'http' %}{{ chip(m.transport, 'bill') }}{% endif %}
-          </td>
-          <td class="num">{{ m.fields|length }}</td>
-          <td class="tight">
-            {% set unit = m.pricing_obj.unit if m.pricing_obj else 'free' %}
-            {% if unit and unit != 'free' %}{{ chip(unit, 'bill') }}{% else %}{{ chip('免费', 'ok') }}{% endif %}
-          </td>
-          <td class="tight">{% if m.verified %}{{ chip('已核对', 'ok') }}{% else %}{{ chip('待核对', 'bill') }}{% endif %}</td>
-          <td class="tight">{% if m.enabled %}{{ chip('启用', 'ok') }}{% else %}{{ chip('停用', 'danger') }}{% endif %}</td>
-          <td class="tight">
-            <a class="btn ghost" href="/models/{{ m.id }}">参数</a>
-            <a class="btn ghost" href="/models/{{ m.id }}/edit">编辑</a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <details open class="model-group" style="border:1px solid var(--line);border-radius:var(--r-sm);padding:0;margin-bottom:var(--s5)">
+    <summary style="padding:var(--s3) var(--s4);cursor:pointer;font-weight:600;font-size:1.1em;display:flex;align-items:center;gap:var(--s2)">
+      <span style="color:var(--signal)">{{ group.label }}</span>
+      <span class="chip sig" style="font-size:12px;font-weight:400">
+        {% set ns3 = namespace(n=0) %}{% for sub in group.subs %}{% set ns3.n = ns3.n + sub.models|length %}{% endfor %}
+        {{ ns3.n }} 个模型
+      </span>
+      <span style="font-size:12px;color:var(--ink-3);font-weight:400">
+        {{ group.subs|length }} 个子分类
+      </span>
+    </summary>
+    <div style="padding:0 var(--s4) var(--s4)">
+      {% for sub in group.subs %}
+      <div class="sub-group" style="margin-top:var(--s4)">
+        <div class="sec-label" style="margin-bottom:var(--s3)">
+          <b>{{ sub.label }}</b> · {{ sub.models|length }} 个
+          {% if not selected.capability %}
+          <a href="/models?capability={{ sub.capability }}" style="color:var(--ink-3);text-decoration:none;font-weight:400">只看这类 →</a>
+          {% endif %}
+        </div>
+        <div class="tablewrap">
+          <table class="data" id="model-table">
+            <thead>
+              <tr>
+                <th>模型</th><th>供应商</th><th>发送方式</th><th class="num">参数</th>
+                <th>计费</th><th>核对</th><th>状态</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for m in sub.models %}
+              <tr class="{% if not m.enabled %}rowdim{% endif %}">
+                <td>
+                  <a href="/models/{{ m.id }}">{{ m.name }}</a>
+                  <div class="id">{{ m.key }}{% if m.notes %} · {{ m.notes[:42] }}{{ '…' if m.notes|length > 42 }}{% endif %}</div>
+                </td>
+                <td class="tight"><code class="mono">{{ m.provider }}</code></td>
+                <td class="tight">
+                  {{ chip(m.method ~ ' ' ~ m.mode) }}
+                  {% if m.transport != 'http' %}{{ chip(m.transport, 'bill') }}{% endif %}
+                </td>
+                <td class="num">{{ m.fields|length }}</td>
+                <td class="tight">
+                  {% set unit = m.pricing_obj.unit if m.pricing_obj else 'free' %}
+                  {% if unit and unit != 'free' %}{{ chip(unit, 'bill') }}{% else %}{{ chip('免费', 'ok') }}{% endif %}
+                </td>
+                <td class="tight">{% if m.verified %}{{ chip('已核对', 'ok') }}{% else %}{{ chip('待核对', 'bill') }}{% endif %}</td>
+                <td class="tight">{% if m.enabled %}{{ chip('启用', 'ok') }}{% else %}{{ chip('停用', 'danger') }}{% endif %}</td>
+                <td class="tight">
+                  <a class="btn ghost" href="/models/{{ m.id }}">参数</a>
+                  <a class="btn ghost" href="/models/{{ m.id }}/edit">编辑</a>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </details>
 </section>
 {% endfor %}
 

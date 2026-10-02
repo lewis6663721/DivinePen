@@ -639,22 +639,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         rows = await instance.repo.models(capability=capability, provider=provider)
         credentials = await instance.repo.default_credentials()
         providers = {p["code"]: p for p in await instance.repo.providers()}
-        grouped: dict[str, list[dict[str, Any]]] = {}
+
+        # 两级分组：大类（图片/视频/音频/文本）→ 子分类（文生图/图生图…）
+        cap_buckets: dict[str, list[dict[str, Any]]] = {}
         for row in rows:
-            grouped.setdefault(row["capability"], []).append(row)
-        ordered = sorted(grouped.items(), key=lambda kv: category_sort(kv[0]))
+            cap_buckets.setdefault(row["capability"], []).append(row)
+
+        broad_buckets: dict[str, dict[str, Any]] = {}
+        for cap_key, cap_rows in sorted(cap_buckets.items(), key=lambda kv: category_sort(kv[0])):
+            prefix = cap_key.split(".", 1)[0]
+            if prefix not in broad_buckets:
+                broad_buckets[prefix] = {
+                    "prefix": prefix,
+                    "label": broad_label(cap_key),
+                    "subs": [],
+                }
+            broad_buckets[prefix]["subs"].append({
+                "capability": cap_key,
+                "label": category_label(cap_key),
+                "models": cap_rows,
+            })
+
+        grouped = sorted(broad_buckets.values(), key=lambda g: broad_sort(g["prefix"]))
+        # 分类下拉：能力分类键 → 中文名
+        all_caps = {row["capability"] for row in await instance.repo.models()}
+        categories = sorted(
+            [{"key": c, "label": category_label(c)} for c in all_caps],
+            key=lambda x: category_sort(x["key"]),
+        )
+
         return render(
             request,
             "models.html",
             title="模型管理",
-            grouped=ordered,
+            grouped=grouped,
             total=len(rows),
             credentials=credentials,
             providers=providers,
-            categories=sorted(
-                {row["capability"] for row in await instance.repo.models()},
-                key=category_sort,
-            ),
+            categories=categories,
             provider_list=await instance.repo.providers(),
             selected={"capability": capability, "provider": provider},
             counts=await nav_counts(instance),

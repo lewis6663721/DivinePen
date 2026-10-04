@@ -707,3 +707,58 @@ SQLite 只能重建表（拷数据、换名），MySQL 可以就地 `DROP INDEX`
 
 **已知待办**：任务中心列表页只做了"诚实"（在跑的行给条纹 + `已运行 Xm`，
 进度格写 `—`），**没有做自刷新** —— 列表是快照，详情页才是那个活的视图。
+
+## 20. "怎么调用"也是文档的一部分（P5 修订）
+
+一次真实的 403：
+
+    提交 文生图 wan2.7-image-pro，页面一切正常，供应商却回
+    AccessDenied current user api does not support synchronous calls
+
+参数对不对已经有 §18 守着（body 只能有一个组装者），但这次错的是**更前面一层**：
+目录把"这个模型该怎么调用"写错了。我把万相图像族标成了 `mode="sync"`，
+还顺手写了句注释「同步返回图像 URL」—— 而文档（万象图像生成2.7 / 2.6 两份都写着）
+的原话是：
+
+> **X-DashScope-Async**（必选）… HTTP 请求只支持异步，**必须设置为** `enable`。
+> **重要** 缺少此请求头将报错："current user api does not support synchronous calls"
+
+供应商的报错文案与文档警告**一字不差**，等于文档早就把答案写好了，
+缺的只是有人回去对一遍。
+
+**教训**：§18 的教训是"一个概念只能有一处实现"，这一节的教训是
+**目录里的每一句断言都得能指回文档原文**。指不到的地方（比如我当时给
+`wan2.6-image` 打的 `verified: false`）就是下一次事故的种子 —— 标记了待核对
+却不回头核对，等于没标。所以模型目录里 `source_doc` 与 `verified` 不是装饰：
+前者是断言的出处，后者是"我确实读过"的签名。
+
+**修法**：万相图像族改走异步 —— 提交带 `X-DashScope-Async: enable`，
+拿 `task_id`，轮询 `GET /api/v1/tasks/{task_id}`。路由本身零新代码：
+视频族早就是这条路（`_async_video_api` + `ASYNC_POLL`），
+只是产物落点不同，所以补了一个 `ASYNC_POLL_IMAGE`。
+
+**两个坑，都写进契约了**：
+
+1. **多图不能只取下标 0**。异步图像结果的产物在
+   `output.choices[0].message.content[]` 里，`n>1` 时是多个块。
+   产物路径故意落在 `content`（数组）上而不是 `某个 .image` 上，
+   顺带给 `pick_artifacts` 的字典兜底键补上 `image` —— 只取下标 0 会**悄悄丢图**。
+2. **异步不等于不用轮询，只是不用 Celery**。我们自己就是调用方，
+   没有队列：`POST /capabilities/{id}/run` 落一行账就 303 回详情页，
+   真正的活儿由一个 asyncio 后台任务（`_spawn`）接着跑。这条路的代价是
+   **轮询活在进程里**，进程一重启就断（§19 的"卡住判定"正是为这种情况准备的）。
+   换 Celery 能扛重启，但那是另一个量级的复杂度，一期不换。
+
+**同区域的提醒**：异步任务的产物 URL **只保留 24 小时**（文档明确），
+所以结果必须及时落盘到 OSS/本地，不能只存远端链接。
+
+**契约测试**（`tests/test_p5_call_mode.py`，5 条）守两条：
+
+1. **只支持异步的族不许留在 sync** —— `test_async_only_family_is_marked_async`
+   按模型键逐个查（happyhorse 那几个没读文档，**故意没写进去**：
+   宁可漏也不瞎断言）；
+2. **异步标志只能是头，不能又是参数** ——
+   `test_async_flag_never_leaks_into_the_body` 扫声明的字段名。
+   另外 `test_image_async_response_keeps_every_image` 拿 `n=2` 的
+   文档响应确认两张图都在，`test_legacy_image_shape_still_parses` 兜住
+   老万相 `output.results[].url` 的形状。

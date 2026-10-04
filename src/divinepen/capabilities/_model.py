@@ -163,7 +163,11 @@ class ModelBackedCapability(Capability):
             payload, polls = await self._poll_until_done(
                 model, str(parsed["task_id"]), api_key, ctx, task.id
             )
+            # 先按 PollSpec 的契约路径取；图像族若返回的是 output.results[].url 形状
+            # （老万相 t2i 那种），用同步路径同一个解析器兜住 —— 两种形状文档里都出现过。
             artifacts = aliyun.pick_artifacts(model, payload)
+            if not artifacts:
+                artifacts = aliyun.pick_image_artifacts(payload)
             await ctx.tasks.update(
                 task.id,
                 status=TaskStatus.SUCCEEDED.value,

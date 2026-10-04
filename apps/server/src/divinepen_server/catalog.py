@@ -87,6 +87,22 @@ ASYNC_POLL = PollSpec(
     usage_path="usage",
 )
 
+#: 异步**图像**任务的轮询契约。与视频只有一处不同：产物在
+#: ``output.choices[0].message.content[]`` 里，每个内容块带 ``image`` 字段。
+#: 取路径故意落在 ``content``（数组）上而不是某个 ``.image`` 上 —— 一次多图
+#: （``n>1``）会全部落进 content，只取下标 0 会丢图。
+ASYNC_POLL_IMAGE = PollSpec(
+    path="/api/v1/tasks/{task_id}",
+    task_id_path="output.task_id",
+    status_path="output.task_status",
+    interval_seconds=6.0,
+    timeout_seconds=1800.0,
+    artifacts=[
+        ArtifactPick(path="output.choices.0.message.content", kind="image", name="生成图片")
+    ],
+    usage_path="usage",
+)
+
 
 def _f(
     key: str,
@@ -293,6 +309,21 @@ def _async_video_api(*, path: str = VIDEO_PATH) -> ApiSpec:
         headers={"Content-Type": "application/json", "X-DashScope-Async": "enable"},
         mode="async_task",
         poll=ASYNC_POLL,
+    )
+
+
+def _async_image_api(*, path: str = IMAGE_PATH) -> ApiSpec:
+    """万相图像族：HTTP **只支持异步**。
+
+    文档原话（万象图像生成2.7 / 2.6 两份都写着）：``X-DashScope-Async`` 必选，
+    「缺少此请求头将报错：current user api does not support synchronous calls」。
+    """
+    return ApiSpec(
+        method="POST",
+        path=path,
+        headers={"Content-Type": "application/json", "X-DashScope-Async": "enable"},
+        mode="async_task",
+        poll=ASYNC_POLL_IMAGE,
     )
 
 
@@ -860,10 +891,10 @@ def _models() -> list[ModelSpec]:
             ),
         ),
     }
-    for key, priority, note in (
-        ("wan2.7-image-pro", 10, "专业版"),
-        ("wan2.7-image", 20, "标准版"),
-        ("wan2.6-image", 30, "2.6 版本，支持流式返回 progress"),
+    for key, priority, note, source_doc in (
+        ("wan2.7-image-pro", 10, "专业版", "万象图像生成2.7.md"),
+        ("wan2.7-image", 20, "标准版", "万象图像生成2.7.md"),
+        ("wan2.6-image", 30, "2.6 版本，图像编辑 + 图文混排", "万象图像生成2.6.md"),
     ):
         out.append(
             ModelSpec(
@@ -872,19 +903,16 @@ def _models() -> list[ModelSpec]:
                 capability="image.t2i",
                 name=f"文生图 {key}（{note}）",
                 region="cn-beijing",
-                api=ApiSpec(
-                    method="POST",
-                    path=IMAGE_PATH,
-                    headers={"Content-Type": "application/json"},
-                    mode="sync",
-                ),
+                api=_async_image_api(),
                 params=image_size_variants[key],
                 pricing=IMAGE_PRICE,
-                notes="万象系列统一走 image-generation/generation，同步返回图像 URL。",
+                notes="万象图像族 HTTP **只支持异步**：必须带 X-DashScope-Async: enable 提交，"
+                "再轮询 /api/v1/tasks/{task_id} 取图。结果 URL 仅 24 小时有效，需及时落盘。",
                 doc_url="https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference",
                 meta={
-                    "source_doc": "万象图像生成2.7.md",
+                    "source_doc": source_doc,
                     "verified": key != "wan2.6-image",
+                    "async_verified": True,
                     "priority": priority,
                 },
             )

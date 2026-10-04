@@ -113,7 +113,12 @@ def pick_artifacts(model: ModelSpec, payload: Any) -> list[Artifact]:
         urls = value if isinstance(value, list) else ([value] if value else [])
         for index, url in enumerate(urls):
             if isinstance(url, dict):
-                url = url.get("url") or url.get("video_url") or url.get("image_url")
+                url = (
+                    url.get("url")
+                    or url.get("video_url")
+                    or url.get("image_url")
+                    or url.get("image")
+                )
             if not isinstance(url, str) or not url.startswith(("http", "data:")):
                 continue
             out.append(

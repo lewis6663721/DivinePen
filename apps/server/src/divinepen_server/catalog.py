@@ -626,16 +626,16 @@ def _models() -> list[ModelSpec]:
             GroupSpec(
                 key="input",
                 label="输入",
-                description="多模态 messages 结构：content 数组内放 text 与 image_url。",
+                description="直接描述你想生成的内容，系统会自动拼成请求格式。",
                 fields=[
                     _f(
                         "input.messages",
-                        "对话消息",
-                        FieldType.JSON,
+                        "描述",
+                        FieldType.TEXTAREA,
                         required=True,
-                        doc="OpenAI 风格的消息数组。文生图只放一条 user 消息；图像编辑/多图融合时"
-                        "在同一条 content 里追加 image_url 项。",
-                        placeholder='[{"role":"user","content":[{"text":"一只在月光下奔跑的猫"}]}]',
+                        doc="直接描述你想生成的内容，系统会自动拼成请求格式。"
+                        "如需图像编辑/多图融合，可在此描述并附上参考图。",
+                        placeholder="一只在月光下奔跑的猫，水彩风格",
                     ),
                     _f(
                         "input.negative_prompt",

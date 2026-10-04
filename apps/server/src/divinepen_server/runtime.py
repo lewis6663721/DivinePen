@@ -70,8 +70,28 @@ def assemble_body(schema: ParamsSchema, values: dict[str, Any]) -> dict[str, Any
         value = values[field.key]
         if value is None:
             continue
+        # 图片/视频模型的 messages 字段：纯文本自动包成 OpenAI 格式
+        if field.key == "input.messages" and isinstance(value, str) and value.strip():
+            value = _wrap_messages(value.strip())
         set_path(body, field.key, value)
     return body
+
+
+def _wrap_messages(text: str) -> list[dict[str, Any]]:
+    """纯文本 → OpenAI messages 格式。
+
+    如果用户直接填了 JSON（以 [ 或 { 开头），原样返回；
+    否则包成 ``[{"role":"user","content":[{"text":"..."}]}]``。
+    """
+    import json as _json
+
+    stripped = text.strip()
+    if stripped.startswith("[") or stripped.startswith("{"):
+        try:
+            return _json.loads(stripped)
+        except _json.JSONDecodeError:
+            pass
+    return [{"role": "user", "content": [{"text": stripped}]}]
 
 
 # ── 端口实现 ───────────────────────────────────────────────────────

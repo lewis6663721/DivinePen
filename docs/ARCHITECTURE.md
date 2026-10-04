@@ -708,57 +708,75 @@ SQLite 只能重建表（拷数据、换名），MySQL 可以就地 `DROP INDEX`
 **已知待办**：任务中心列表页只做了"诚实"（在跑的行给条纹 + `已运行 Xm`，
 进度格写 `—`），**没有做自刷新** —— 列表是快照，详情页才是那个活的视图。
 
-## 20. "怎么调用"也是文档的一部分（P5 修订）
+## 20. 调用方式：同步与异步是两个端点（P5 修订）
 
 一次真实的 403：
 
     提交 文生图 wan2.7-image-pro，页面一切正常，供应商却回
     AccessDenied current user api does not support synchronous calls
 
-参数对不对已经有 §18 守着（body 只能有一个组装者），但这次错的是**更前面一层**：
-目录把"这个模型该怎么调用"写错了。我把万相图像族标成了 `mode="sync"`，
-还顺手写了句注释「同步返回图像 URL」—— 而文档（万象图像生成2.7 / 2.6 两份都写着）
-的原话是：
+参数对不对已经有 §18 守着（body 只能有一个组装者），这次错的是**更前面一层**：
+目录里"这个模型该怎么调用"配错了。
 
-> **X-DashScope-Async**（必选）… HTTP 请求只支持异步，**必须设置为** `enable`。
-> **重要** 缺少此请求头将报错："current user api does not support synchronous calls"
+**先说对原因，因为第一版解释是错的。** 我当时写的是"万象图像族只支持异步"——
+不对。万象/千问图像**同步异步都支持，但是两个不同的端点**：
 
-供应商的报错文案与文档警告**一字不差**，等于文档早就把答案写好了，
-缺的只是有人回去对一遍。
+| | 端点 | 请求头 |
+|---|---|---|
+| 同步 | `POST …/services/aigc/multimodal-generation/generation` | Content-Type + Authorization |
+| 异步 | `POST …/services/aigc/image-generation/generation` | 再加 **`X-DashScope-Async: enable`（必选）** |
 
-**教训**：§18 的教训是"一个概念只能有一处实现"，这一节的教训是
-**目录里的每一句断言都得能指回文档原文**。指不到的地方（比如我当时给
-`wan2.6-image` 打的 `verified: false`）就是下一次事故的种子 —— 标记了待核对
-却不回头核对，等于没标。所以模型目录里 `source_doc` 与 `verified` 不是装饰：
-前者是断言的出处，后者是"我确实读过"的签名。
+文档在异步端点下写着：「**X-DashScope-Async**（必选）… HTTP 请求只支持异步，必须设置为
+`enable`。**重要** 缺少此请求头将报错："current user api does not support synchronous calls"」——
+供应商的报错与文档警告**一字不差**。而万象2.7 的同步章节还写着「一次请求即可获得结果，
+流程简单，**推荐大多数场景使用**」。
 
-**修法**：万相图像族改走异步 —— 提交带 `X-DashScope-Async: enable`，
-拿 `task_id`，轮询 `GET /api/v1/tasks/{task_id}`。路由本身零新代码：
-视频族早就是这条路（`_async_video_api` + `ASYNC_POLL`），
-只是产物落点不同，所以补了一个 `ASYNC_POLL_IMAGE`。
+所以事故的准确描述是：**我们把一个同步调用打在了异步专用端点上**。
+`IMAGE_PATH` 常量就是那个异步端点，而当时 `wan2.7-image*` 的 `mode="sync"` 指向了它。
+第一版解释之所以更危险，是因为它把"我配错了"说成了"供应商只支持异步"——
+后者会让人以为同步没有出路，从而放弃一个文档明确推荐的做法。
 
-**两个坑，都写进契约了**：
+**修法（按你的要求统一走异步）**：
 
-1. **多图不能只取下标 0**。异步图像结果的产物在
-   `output.choices[0].message.content[]` 里，`n>1` 时是多个块。
-   产物路径故意落在 `content`（数组）上而不是 `某个 .image` 上，
-   顺带给 `pick_artifacts` 的字典兜底键补上 `image` —— 只取下标 0 会**悄悄丢图**。
-2. **异步不等于不用轮询，只是不用 Celery**。我们自己就是调用方，
-   没有队列：`POST /capabilities/{id}/run` 落一行账就 303 回详情页，
-   真正的活儿由一个 asyncio 后台任务（`_spawn`）接着跑。这条路的代价是
-   **轮询活在进程里**，进程一重启就断（§19 的"卡住判定"正是为这种情况准备的）。
-   换 Celery 能扛重启，但那是另一个量级的复杂度，一期不换。
+* **图像**：`qwen-image-3.0` / `qwen-image-3.0-pro` 改走异步 —— 文档明说
+  「异步接口与同步接口**共用相同的请求参数结构**，仅需在请求头中增加
+  `X-DashScope-Async: enable`」，**但请求地址不同**，别沿用同步地址。万象族同。
+* **视频**：本就异步（`video-synthesis` + `GET /api/v1/tasks/{task_id}`），14 个模型
+  的产物键统一是 `video_url`（逐份文档核过）。
+* **音频**：**改不了**。两份音频文档只给 WebSocket
+  （`wss://…/api-ws/v1/inference`），没有 HTTP 任务接口 —— TTS 与 ASR 都是长连接协议。
+* **LLM / 向量 / 重排**：**改不了**。llm.md 只有 OpenAI 兼容的
+  `POST /compatible-mode/v1/chat/completions`，没有任务型异步接口。
 
-**同区域的提醒**：异步任务的产物 URL **只保留 24 小时**（文档明确），
-所以结果必须及时落盘到 OSS/本地，不能只存远端链接。
+**四条不变量（都进了契约测试）**：
 
-**契约测试**（`tests/test_p5_call_mode.py`，5 条）守两条：
+1. **模式与端点必须自洽** —— 同步调用不许指向异步专用端点。这条才是当初缺的那一条
+   （`test_sync_must_not_use_the_async_only_endpoint`）。
+2. **标了异步就必须有轮询契约**，否则任务永远停在 RUNNING。
+3. **异步标志只能是头，不能又是参数** —— 扫声明的字段名。
+4. **多图不许丢**。三份文档的返回形状**各不相同**，这是本次最容易栽的地方：
 
-1. **只支持异步的族不许留在 sync** —— `test_async_only_family_is_marked_async`
-   按模型键逐个查（happyhorse 那几个没读文档，**故意没写进去**：
-   宁可漏也不瞎断言）；
-2. **异步标志只能是头，不能又是参数** ——
-   `test_async_flag_never_leaks_into_the_body` 扫声明的字段名。
-   另外 `test_image_async_response_keeps_every_image` 拿 `n=2` 的
-   文档响应确认两张图都在，`test_legacy_image_shape_still_parses` 兜住
-   老万相 `output.results[].url` 的形状。
+   | | 形状 |
+   |---|---|
+   | 千问图像 | 一个 choice，图像在同一 choice 的多个 `content[]` 块里 |
+   | 万象2.6 | `n=2` 时是**两个 choice**，每个 choice 各带一张 |
+   | 万象2.7 | 同 2.6；组图生成同样多 choice |
+   | 老万相 t2i | `output.results[].url` |
+
+   所以 `ASYNC_POLL_IMAGE` **故意不声明产物路径**（一条点号路径表达不了），
+   统一交给 `aliyun.pick_image_artifacts`（遍历全部 choice × 全部 content 块）。
+   写成 `output.choices.0.message.content` 会**悄悄只取第一张** —— 静默丢产物比报错难查。
+   结算数量也跟着文档字段名走：万象报 `image_count`，千问报 `output_image_count`。
+
+**出处必须是真的。** 本轮还查出 `z-image-turbo` 挂着
+`source_doc=千问图像生成.md`、`verified=True`，而它在 15 份文档里**一次都没出现**
+（连 "z-image" 字样都没有）。假的出处比没有出处更危险：它会让下一个读目录的人
+以为有人核对过。已改为 `verified=False` + 空 `source_doc`，调用方式留在同步端点
+（至少自洽），**待补文档后再定**。这条也进了测试
+（`test_undocumented_model_claims_no_provenance`）。
+
+**两条运维硬约束（文档原话）**：
+
+* **结果 URL 只留 24 小时**，任务状态与图像 URL 都会被自动清除 —— 必须及时落盘。
+* **不可跨地域 / 跨业务空间查询**：「必须使用提交任务时的地域、业务空间和API Key
+  查询任务」。所以提交与查询必须同区同 Key，轮询请求要复用提交时那份凭据。

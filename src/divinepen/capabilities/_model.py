@@ -163,8 +163,9 @@ class ModelBackedCapability(Capability):
             payload, polls = await self._poll_until_done(
                 model, str(parsed["task_id"]), api_key, ctx, task.id
             )
-            # 先按 PollSpec 的契约路径取；图像族若返回的是 output.results[].url 形状
-            # （老万相 t2i 那种），用同步路径同一个解析器兜住 —— 两种形状文档里都出现过。
+            # 图像族的 PollSpec 故意不声明产物路径（多 choice × 多 content 块，
+            # 一条点号路径表达不了，见 catalog.ASYNC_POLL_IMAGE），所以这里
+            # 契约取不到就交给图像族的解析器统一捞 —— 它遍历全部 choice。
             artifacts = aliyun.pick_artifacts(model, payload)
             if not artifacts:
                 artifacts = aliyun.pick_image_artifacts(payload)

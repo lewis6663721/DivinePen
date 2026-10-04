@@ -155,7 +155,10 @@ def quantity_of(model: ModelSpec, payload: Any, artifacts: list[Artifact]) -> fl
     if unit == "second":
         return float(usage.get("duration") or usage.get("video_duration") or 0)
     if unit == "image":
-        return float(usage.get("image_count") or len(artifacts) or 0)
+        # 千问图像异步只回 output_image_count → 依次兜底，最后用实际捞到的产物数。
+        return float(
+            usage.get("image_count") or usage.get("output_image_count") or len(artifacts) or 0
+        )
     if unit == "token":
         return float(usage.get("total_tokens") or 0)
     if unit == "character":

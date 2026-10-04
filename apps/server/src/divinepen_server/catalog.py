@@ -87,19 +87,23 @@ ASYNC_POLL = PollSpec(
     usage_path="usage",
 )
 
-#: 异步**图像**任务的轮询契约。与视频只有一处不同：产物在
-#: ``output.choices[0].message.content[]`` 里，每个内容块带 ``image`` 字段。
-#: 取路径故意落在 ``content``（数组）上而不是某个 ``.image`` 上 —— 一次多图
-#: （``n>1``）会全部落进 content，只取下标 0 会丢图。
+#: 异步**图像**任务的轮询契约。
+#:
+#: 产物**故意不给一条点号路径** —— 三份文档的返回形状各不相同，一条路径表达不了：
+#:
+#: * 千问图像：一个 choice，图像在 ``content[]`` 的多个块里；
+#: * 万象2.6：``n=2`` 时是**两个 choice**，每个 choice 各带一张图；
+#: * 万象2.7：同 2.6，但组图生成时同样是多 choice。
+#:
+#: 写成 ``output.choices.0.message.content`` 就会**悄悄只取第一张**。
+#: 图像族的产物统一交给 ``aliyun.pick_image_artifacts``（遍历全部 choice × 全部 content 块）。
 ASYNC_POLL_IMAGE = PollSpec(
     path="/api/v1/tasks/{task_id}",
     task_id_path="output.task_id",
     status_path="output.task_status",
     interval_seconds=6.0,
     timeout_seconds=1800.0,
-    artifacts=[
-        ArtifactPick(path="output.choices.0.message.content", kind="image", name="生成图片")
-    ],
+    artifacts=[],
     usage_path="usage",
 )
 
@@ -736,7 +740,6 @@ def _models() -> list[ModelSpec]:
     for key, priority, note in (
         ("qwen-image-3.0-pro", 10, "旗舰，复杂版面 + 文字渲染"),
         ("qwen-image-3.0", 20, "同上，速度更快"),
-        ("z-image-turbo", 30, "快速低成本，写实人像"),
     ):
         out.append(
             ModelSpec(
@@ -745,19 +748,40 @@ def _models() -> list[ModelSpec]:
                 capability="image.t2i",
                 name=f"文生图 {key}（{note}）",
                 region="cn-beijing",
-                api=ApiSpec(
-                    method="POST",
-                    path=SYNC_IMAGE_PATH,
-                    headers={"Content-Type": "application/json"},
-                    mode="sync",
-                ),
+                api=_async_image_api(),
                 params=qwen_image_params,
                 pricing=IMAGE_PRICE,
-                notes="同一模型兼顾文生图、图生图与图像编辑：区别只在 messages 里有没有 image_url。",
+                notes="同一模型兼顾文生图、图生图与图像编辑：区别只在 messages 里有没有 image_url。"
+                "同步与异步**是两个不同端点**（同步 multimodal-generation/generation，"
+                "异步 image-generation/generation），请求体一致；本项目统一走异步。",
                 doc_url="https://help.aliyun.com/zh/model-studio/qwen-image-api-reference",
                 meta={"source_doc": "千问图像生成.md", "verified": True, "priority": priority},
             )
         )
+
+    # z-image-turbo：**你给的 15 份文档里没有它**（连 "z-image" 字样都没有），
+    # 所以调用方式无从核对。保守处理：留在同步端点（至少自洽），
+    # 并把 verified 降下来、不编 source_doc —— 假的出处比没有出处更危险。
+    out.append(
+        ModelSpec(
+            provider=PROVIDER_ALIYUN,
+            key="z-image-turbo",
+            capability="image.t2i",
+            name="文生图 z-image-turbo（快速低成本，写实人像）",
+            region="cn-beijing",
+            api=ApiSpec(
+                method="POST",
+                path=SYNC_IMAGE_PATH,
+                headers={"Content-Type": "application/json"},
+                mode="sync",
+            ),
+            params=qwen_image_params,
+            pricing=IMAGE_PRICE,
+            notes="文档未提供：调用方式（含是否支持异步）待补文档后核对，暂按同步端点走。",
+            doc_url="",
+            meta={"source_doc": "", "verified": False, "priority": 30},
+        )
+    )
 
     # ── 图像：万象 2.7 / 2.6 ──────────────────────────────────────
     wan_image_params = ParamsSchema(
@@ -906,8 +930,11 @@ def _models() -> list[ModelSpec]:
                 api=_async_image_api(),
                 params=image_size_variants[key],
                 pricing=IMAGE_PRICE,
-                notes="万象图像族 HTTP **只支持异步**：必须带 X-DashScope-Async: enable 提交，"
-                "再轮询 /api/v1/tasks/{task_id} 取图。结果 URL 仅 24 小时有效，需及时落盘。",
+                notes="同步与异步是**两个不同端点**：同步走 multimodal-generation/generation，"
+                "异步走 image-generation/generation —— 后者只受理异步，缺 X-DashScope-Async 头"
+                "就会报 'current user api does not support synchronous calls'。"
+                "本项目统一走异步，轮询 /api/v1/tasks/{task_id} 取图；"
+                "结果 URL 仅 24 小时有效，须及时落盘。",
                 doc_url="https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference",
                 meta={
                     "source_doc": source_doc,

@@ -211,18 +211,29 @@ class Capability(ABC):
             elif req is Requirement.FFMPEG_SUBTITLES and not await ffmpeg_has_filter("subtitles"):
                 missing.append("当前 ffmpeg 未编译字幕滤镜（libass），字幕烧录不可用")
         if self.manifest.needs_credential:
-            provider = self.manifest.model_capability or self.manifest.namespace
-            ready = await _credential_ready(ctx, provider)
-            if ready is False:
-                missing.append(f"未配置供应商 {provider} 的 API Key")
+            # 从模型目录找这个能力绑定的供应商，而不是拿 capability id 当供应商代码。
+            # 例：image.t2i 的模型挂在 aliyun-bailian 下，凭据也按 aliyun-bailian 存，
+            # 不能拿 "image.t2i" 去查凭据表。
+            providers = await _resolve_credential_providers(ctx, self.manifest)
+            if not providers:
+                missing.append(f"没有供应商注册了 {self.manifest.model_capability or self.manifest.id} 的模型")
+            else:
+                any_ready = False
+                for p in providers:
+                    ready = await _credential_ready(ctx, p)
+                    if ready is True:
+                        any_ready = True
+                        break
+                if not any_ready:
+                    missing.append(f"未配置供应商 {' / '.join(providers)} 的 API Key")
         return missing
 
     async def assert_ready(self, ctx: RunContext) -> None:
         missing = await self.check_ready(ctx)
         if missing:
-            provider = self.manifest.model_capability or self.manifest.namespace
             if any("API Key" in m for m in missing):
-                raise CredentialMissing(" · ".join(missing), detail={"provider": provider})
+                providers = await _resolve_credential_providers(ctx, self.manifest)
+                raise CredentialMissing(" · ".join(missing), detail={"provider": providers[0] if providers else ""})
             raise MediaToolMissing(" · ".join(missing), detail={"missing": missing})
 
     # ── 核心：plan / execute ──────────────────────────────────────
@@ -314,6 +325,33 @@ async def ffmpeg_has_filter(name: str) -> bool:
     ok = name in names
     _FFMPEG_FILTER_CACHE[name] = ok
     return ok
+
+
+async def _resolve_credential_providers(ctx: RunContext, manifest) -> list[str]:
+    """从模型目录查这个能力绑定的供应商列表。
+
+    能力声明 ``model_capability``（如 ``image.t2i``），模型库里每条模型记录带
+    ``provider``（如 ``aliyun-bailian``）。凭据按 provider 存，不按 capability 存。
+    所以 check_ready 要先查"哪些供应商有这个能力的模型"，再去查那个供应商的 Key。
+    """
+    cap_key = manifest.model_capability
+    if not cap_key:
+        return []
+    catalog = ctx.catalog
+    if catalog is None:
+        return []
+    try:
+        models = await catalog.list_models(capability=cap_key, enabled_only=False)
+    except Exception:
+        return []
+    # 去重，保持顺序
+    seen: set[str] = set()
+    providers: list[str] = []
+    for m in models:
+        if m.provider not in seen:
+            seen.add(m.provider)
+            providers.append(m.provider)
+    return providers
 
 
 async def _credential_ready(ctx: RunContext, provider: str) -> bool | None:

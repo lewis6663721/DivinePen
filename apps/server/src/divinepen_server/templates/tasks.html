@@ -4,9 +4,10 @@
 {% block body %}
 <div class="page-head">
   <h1>任务中心</h1>
-  <p>异步执行的账本。<b>提交那一刻远端 task_id 就落库</b>；pipeline 模式一路跑完写结果，
-     interactive 模式停在人工闸口时任务转 <code class="mono">AWAITING_INPUT</code>，
-     带着你的确认 resume 续跑 —— 暂停态（已产出的中间产物、停在哪一步）都存在任务里，重启不丢。</p>
+  <p>异步执行的账本，也是工作台。<b>提交那一刻远端 task_id 就落库</b>；
+     跑着的能<b>取消</b>，结束的能<b>重跑</b>或<b>复制改参</b>再发一单，
+     过时的记录能删。pipeline 一路跑完写结果，interactive 停在人工闸口时转
+     <code class="mono">AWAITING_INPUT</code>，带着你的确认 resume 续跑。</p>
 </div>
 
 <section>
@@ -17,23 +18,34 @@
       {{ s }}{% if task_counts.get(s) %} <span class="count">{{ task_counts[s] }}</span>{% endif %}
     </a>
     {% endfor %}
+    <div class="spacer" style="margin-left:auto"></div>
+    {% if task_counts.get('SUCCEEDED') or task_counts.get('FAILED') or task_counts.get('CANCELED') %}
+    <form method="post" action="/tasks/purge"
+          data-confirm="清理所有已结束的任务记录（成功 / 失败 / 已取消）？正在跑的不会被删。产物文件不受影响。">
+      <input type="hidden" name="scope" value="terminal"/>
+      <button class="btn ghost" type="submit">清空已结束</button>
+    </form>
+    {% endif %}
   </div>
 
   {% if tasks %}
   <div class="tablewrap">
     <table class="data">
       <thead>
-        <tr><th>任务</th><th>能力 / 模型</th><th>状态</th><th class="num">进度</th><th>产物 / 闸口</th><th>创建</th></tr>
+        <tr><th>任务</th><th>能力 / 模型</th><th>状态</th><th class="num">进度</th><th>产物 / 闸口</th><th>创建</th><th>操作</th></tr>
       </thead>
       <tbody>
         {% for t in tasks %}
+        {% set active = t.status in ('PENDING', 'RUNNING', 'AWAITING_INPUT') %}
         <tr>
           <td><a href="/tasks/{{ t.id }}"><code class="mono">{{ t.id }}</code></a>
+            {% if active %}
             <div class="filmstrip" style="max-width:160px">
               {% for i in range(10) %}
-              <i class="{% if t.status == 'SUCCEEDED' or (t.status in ('RUNNING','AWAITING_INPUT') and i * 10 < t.progress) %}done{% endif %}"></i>
+              <i class="{% if i * 10 < t.progress %}done{% elif i * 10 == (t.progress // 10) * 10 %}now{% endif %}"></i>
               {% endfor %}
             </div>
+            {% endif %}
           </td>
           <td class="tight">
             <code class="mono">{{ t.capability_id }}</code>
@@ -53,6 +65,26 @@
             {% else %}—{% endif %}
           </td>
           <td class="id">{{ t.created_at }}</td>
+          <td class="tight">
+            <div class="toolbar" style="gap:6px">
+              {% if active %}
+              <form method="post" action="/tasks/{{ t.id }}/cancel"
+                    data-confirm="取消任务 {{ t.id }}？远端任务也会尽力一起取消。">
+                <button class="btn quiet danger" type="submit">取消</button>
+              </form>
+              {% else %}
+              <form method="post" action="/tasks/{{ t.id }}/retry"
+                    data-confirm="按原参数重跑一遍？这会新发一次请求并重新计费。">
+                <button class="btn ghost" type="submit">重跑</button>
+              </form>
+              <a class="btn ghost" href="/tasks/{{ t.id }}/clone">复制改参</a>
+              <form method="post" action="/tasks/{{ t.id }}/delete"
+                    data-confirm="删除任务记录 {{ t.id }}？只清台账，已生成的产物文件不动。">
+                <button class="btn quiet danger" type="submit">删除</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
         </tr>
         {% endfor %}
       </tbody>

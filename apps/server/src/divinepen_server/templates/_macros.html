@@ -10,7 +10,7 @@
 {%- endmacro %}
 
 {% macro state(value) -%}
-<span class="state {{ value }}">{{ value }}</span>
+<span class="state {{ value }}" data-status="{{ value }}">{{ value }}</span>
 {%- endmacro %}
 
 {% macro billing_chip(unit) -%}

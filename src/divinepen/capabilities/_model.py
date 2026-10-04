@@ -153,14 +153,12 @@ class ModelBackedCapability(Capability):
                     f"{model.provider} 提交未返回 task_id",
                     detail={"error": parsed["error"], "payload": payload},
                 )
-            task = await ctx.tasks.create(
-                capability_id=self.manifest.id,
+            task = await self._open_task(
+                ctx,
                 provider=model.provider,
                 model=model.key,
-                status=TaskStatus.PENDING.value,
                 remote_task_id=str(parsed["task_id"]),
                 payload=request.body,
-                user_id=ctx.user_id,
             )
             payload, polls = await self._poll_until_done(
                 model, str(parsed["task_id"]), api_key, ctx, task.id
@@ -214,6 +212,45 @@ class ModelBackedCapability(Capability):
         )
 
     # ── 内部 ────────────────────────────────────────────────────
+
+    async def _open_task(
+        self,
+        ctx: RunContext,
+        *,
+        provider: str,
+        model: str,
+        remote_task_id: str,
+        payload: dict[str, Any],
+    ) -> Any:
+        """把远端 task_id 记到账上。
+
+        服务端（``capability_run``）在提交那一刻就已经建好了这一条任务，好让
+        用户在任务中心立刻看见它。所以这里**优先复用那一行**，只把 remote id
+        补上去；若无脑再 ``create`` 一条，一次生成就会在账本上留下两条互相
+        不认识的任务 —— 一条有参数，一条有进度和远端 id，谁都拼不出全貌。
+        库外调用（``ctx.extra`` 里没有 task_id）才新建。
+        """
+        bound = (ctx.extra or {}).get("task_id")
+        if bound:
+            ref = await ctx.tasks.update(
+                str(bound),
+                provider=provider,
+                model=model,
+                remote_task_id=remote_task_id,
+                status=TaskStatus.PENDING.value,
+                payload=payload,
+            )
+            if ref is not None:
+                return ref
+        return await ctx.tasks.create(
+            capability_id=self.manifest.id,
+            provider=provider,
+            model=model,
+            status=TaskStatus.PENDING.value,
+            remote_task_id=remote_task_id,
+            payload=payload,
+            user_id=ctx.user_id,
+        )
 
     async def _resolve(
         self, inputs: ModelCallInput, ctx: RunContext, *, explicit: str | None = None

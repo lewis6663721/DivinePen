@@ -56,6 +56,26 @@ def poll_request(model: ModelSpec, task_id: str, *, api_key: str) -> PlannedRequ
     )
 
 
+def cancel_request(model: ModelSpec, task_id: str, *, api_key: str) -> PlannedRequest:
+    """取消一个远端异步任务。
+
+    端点就挂在轮询路径下面（``/api/v1/tasks/{task_id}/cancel``），见文档
+    「管理异步任务」。取消本身不计费；但**只有 PENDING/RUNNING 才取消得掉**，
+    已完成的会返回失败，调用方按 best-effort 处理即可。
+    """
+    poll = model.api.poll
+    if poll is None:
+        raise ValueError(f"模型 {model.key} 没有轮询配置，不存在可取消的远端任务")
+    path = poll.path.replace("{task_id}", task_id).rstrip("/") + "/cancel"
+    return PlannedRequest(
+        kind=RequestKind.HTTP,
+        method="POST",
+        url=absolute_url(model, path),
+        headers={"Authorization": f"Bearer {api_key}"},
+        note="取消远端异步任务",
+    )
+
+
 def parse_submit(model: ModelSpec, payload: Any) -> dict[str, Any]:
     """提交响应 → {task_id?, output, usage, error}。"""
     payload = payload if isinstance(payload, dict) else {}

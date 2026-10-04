@@ -33,7 +33,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
 from divinepen.agents import discover_plugins
-from divinepen.core.ports import ResolvePolicy
+from divinepen.core.ports import HttpRequest, ResolvePolicy
 from divinepen.core.specs import FieldType, ParamsSchema, TaskStatus
 
 from . import modelform as mf
@@ -183,6 +183,8 @@ def money(amount: Any, currency: str = "CNY") -> str:
 state: dict[str, Any] = {}
 #: 后台执行中的 asyncio 任务引用集合：不持有引用会被 GC 中途回收。
 _BG: set[Any] = set()
+#: 任务台账 id → 正在跑它的 asyncio 任务。取消按钮要凭这个找到人。
+_RUNNING: dict[str, Any] = {}
 #: create_app 时把本次配置存进来，供 lifespan 读取（lifespan 不能带额外参数）。
 settings_ref: dict[str, Settings] = {}
 
@@ -1421,7 +1423,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
              "status": "PENDING", "payload": payload,
              "user_id": getattr(request.state, "user", None) and request.state.user["id"]}
         )
-        _spawn(_run_background(instance, task_id, capability_id, payload, billed_allowed=True))
+        _spawn(
+            _run_background(instance, task_id, capability_id, payload, billed_allowed=True),
+            task_id=task_id,
+        )
         return RedirectResponse(
             flash_url(f"/tasks/{task_id}",
                       f"已提交执行，任务 {task_id[:12]}…"),
@@ -1451,10 +1456,130 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "start_index": paused.get("start_index") or 0,
         }
         await instance.repo.update_task(task_id, status="PENDING", result=dumps({}))
-        _spawn(_run_background(instance, task_id, row["capability_id"],
-                               row.get("payload_obj") or {}, billed_allowed=True,
-                               resume=resume, approvals=approvals))
+        _spawn(
+            _run_background(instance, task_id, row["capability_id"],
+                            row.get("payload_obj") or {}, billed_allowed=True,
+                            resume=resume, approvals=approvals),
+            task_id=task_id,
+        )
         return RedirectResponse(flash_url(f"/tasks/{task_id}", "已带着你的确认继续执行"), 303)
+
+    # ── 任务的增 / 删 / 改 / 查：取消 · 删除 · 重跑 · 复制改参 ─────
+    # 任务中心原来只是账本（只读）。这里把它变成工作台，但守住两条线：
+    #   ① **跑着的任务不删**：只有终态才允许删 —— 删掉一条正在跑的任务，
+    #      远端还在扣费，本地却查无此人；
+    #   ② **删除是账，不是产物**：删任务不回删产物（那份 mp4 / png 在 media/ 里），
+    #      账单对账时产物还在。所以这是"清列表"，不是"销毁证据"。
+
+    @app.post("/tasks/{task_id}/cancel")
+    async def task_cancel(request: Request, task_id: str):
+        instance = get_app()
+        row = await instance.repo.task(task_id)
+        if not row:
+            return RedirectResponse(flash_url("/tasks", "任务不存在", "danger"), 303)
+        if TaskStatus(row["status"]).is_terminal:
+            return RedirectResponse(
+                flash_url(f"/tasks/{task_id}", "任务已经结束了，不用取消", "warn"), 303
+            )
+        note = await _stop_task(instance, row)
+        await instance.repo.update_task(
+            task_id,
+            status=TaskStatus.CANCELED.value,
+            finished_at=_now(),
+            error=dumps({"message": "用户取消"}),
+        )
+        return RedirectResponse(flash_url(f"/tasks/{task_id}", f"已取消{note}"), 303)
+
+    @app.post("/tasks/{task_id}/retry")
+    async def task_retry(request: Request, task_id: str):
+        """原样重跑：拿同一份 payload 新建一条任务，立刻执行。
+
+        不复用原来那一行 —— 原来那条的失败原因、耗时、远端 id 都是证据，
+        覆盖掉就说不清"这次为什么和上次不一样"了。
+        """
+        instance = get_app()
+        row = await instance.repo.task(task_id)
+        if not row:
+            return RedirectResponse(flash_url("/tasks", "任务不存在", "danger"), 303)
+        if TaskStatus(row["status"]).is_active:
+            return RedirectResponse(
+                flash_url(f"/tasks/{task_id}", "任务还在跑，先取消或等它结束", "warn"), 303
+            )
+        cap_id = row["capability_id"]
+        if not instance.registry.has(cap_id):
+            return RedirectResponse(
+                flash_url(f"/tasks/{task_id}", f"能力 {cap_id} 未安装，无法重跑", "danger"), 303
+            )
+        payload = row.get("payload_obj") or {}
+        new_id = await instance.repo.create_task(
+            {
+                "capability_id": cap_id,
+                "provider": row.get("provider") or "",
+                "model": row.get("model") or "",
+                "status": "PENDING",
+                "payload": payload,
+                "user_id": row.get("user_id"),
+            }
+        )
+        _spawn(
+            _run_background(instance, new_id, cap_id, payload, billed_allowed=True),
+            task_id=new_id,
+        )
+        return RedirectResponse(
+            flash_url(f"/tasks/{new_id}", f"已按原参数重跑，新任务 {new_id[:12]}…"), 303
+        )
+
+    @app.get("/tasks/{task_id}/clone")
+    async def task_clone(request: Request, task_id: str):
+        """复制改参：把这份参数**原样带回能力页**，改一个字段就能再跑。
+
+        不在这里做一个"参数编辑器"——能力页那套「供应商 → 模型 → 参数」的表单
+        才是参数的唯一真相源（下拉、默认值、必填都在那儿）。复制到那里改，
+        改完提交走的还是同一条校验路径，不会出现"两套表单各说各话"。
+        """
+        instance = get_app()
+        row = await instance.repo.task(task_id)
+        if not row:
+            return RedirectResponse(flash_url("/tasks", "任务不存在", "danger"), 303)
+        cap_id = row["capability_id"]
+        if not instance.registry.has(cap_id):
+            return RedirectResponse(
+                flash_url(f"/tasks/{task_id}", f"能力 {cap_id} 未安装，无法复制", "danger"), 303
+            )
+        query = urlencode(_clone_pairs(row), doseq=True)
+        return RedirectResponse(f"/capabilities/{cap_id}?{query}", 303)
+
+    @app.post("/tasks/{task_id}/delete")
+    async def task_delete(request: Request, task_id: str):
+        instance = get_app()
+        row = await instance.repo.task(task_id)
+        if not row:
+            return RedirectResponse(flash_url("/tasks", "任务不存在", "danger"), 303)
+        if TaskStatus(row["status"]).is_active:
+            return RedirectResponse(
+                flash_url(f"/tasks/{task_id}", "任务还在跑，先取消再删", "danger"), 303
+            )
+        await instance.repo.delete_task(task_id)
+        return RedirectResponse(flash_url("/tasks", f"已删除任务 {task_id[:12]}…"), 303)
+
+    @app.post("/tasks/purge")
+    async def tasks_purge(request: Request, scope: str = Form("terminal")):
+        """批量清账。`scope=terminal` 清所有终态；`failed` 只清失败的。
+
+        绝不清 active（PENDING / RUNNING / AWAITING_INPUT）—— 那是正在花的钱。
+        """
+        instance = get_app()
+        wanted = {
+            "terminal": [
+                TaskStatus.SUCCEEDED.value,
+                TaskStatus.FAILED.value,
+                TaskStatus.CANCELED.value,
+            ],
+            "failed": [TaskStatus.FAILED.value, TaskStatus.CANCELED.value],
+            "succeeded": [TaskStatus.SUCCEEDED.value],
+        }.get(scope, [])
+        removed = await instance.repo.purge_tasks(wanted)
+        return RedirectResponse(flash_url("/tasks", f"已清理 {removed} 条任务记录"), 303)
 
     # ── 目录重新导入 ───────────────────────────────────────────
 
@@ -1731,6 +1856,8 @@ async def _run_background(
             "registry": instance.registry,
             "resume": resume or {},
             "gate_approvals": approvals or {},
+            # 让模型型能力把远端 task_id 补到**这一行**账上，而不是另起一条。
+            "task_id": task_id,
         },
     )
     try:
@@ -1789,11 +1916,14 @@ def _artifact_uris(result: Any) -> list[str]:
     return []
 
 
-def _spawn(coro: Any) -> None:
+def _spawn(coro: Any, *, task_id: str | None = None) -> None:
     import asyncio
 
     task = asyncio.get_running_loop().create_task(coro)
     _BG.add(task)
+    if task_id:
+        _RUNNING[task_id] = task
+        task.add_done_callback(lambda _t, tid=task_id: _RUNNING.pop(tid, None))
     task.add_done_callback(_BG.discard)
     task.add_done_callback(_log_bg_error)
 
@@ -1802,6 +1932,92 @@ def _now() -> str:
     from datetime import UTC, datetime
 
     return datetime.now(UTC).astimezone().isoformat(timespec="seconds")
+
+
+async def _stop_task(instance: rt.App, row: dict[str, Any]) -> str:
+    """停下一个还在跑的任务：先掐本地的协程，再尽力通知远端。
+
+    为什么要分两步：本地 asyncio 任务一取消，轮询循环就停了，但供应商那边的
+    生成**不会跟着停** —— 不通知它，钱照扣。所以拿到 remote_task_id 就补一刀
+    ``/cancel``。远端往往已经跑完或不可取消，所以是 best-effort，结果如实回报。
+    """
+    import contextlib
+
+    task_id = row["id"]
+    handle = _RUNNING.pop(task_id, None)
+    if handle is not None and not handle.done():
+        handle.cancel()
+        with contextlib.suppress(BaseException):
+            await handle
+
+    remote_id = row.get("remote_task_id")
+    if not remote_id:
+        return ""
+    return await _cancel_remote(instance, row, str(remote_id))
+
+
+async def _cancel_remote(instance: rt.App, row: dict[str, Any], remote_task_id: str) -> str:
+    from divinepen.core.errors import DivinePenError
+    from divinepen.providers import aliyun
+
+    provider = row.get("provider") or ""
+    model_key = row.get("model") or ""
+    try:
+        model = await instance.catalog.get_model(provider, model_key)
+        if model is None or model.api.poll is None:
+            return ""
+        api_key = await instance.credentials.get(provider)
+        req = aliyun.cancel_request(model, remote_task_id, api_key=api_key)
+        resp = await instance.http.request(
+            HttpRequest(
+                method=req.method, url=req.url, headers=req.headers, timeout=30.0
+            )
+        )
+    except DivinePenError as exc:
+        return f"；远端取消没成功（{exc}），它可能还在跑"
+    except Exception as exc:  # 网络、无 Key 等：不影响本地已完成取消这件事
+        return f"；远端取消没成功（{type(exc).__name__}），它可能还在跑"
+    if resp.ok:
+        return "，远端任务也已请求取消"
+    return f"；远端取消返回 HTTP {resp.status_code}，它可能已经跑完或正在跑"
+
+
+def _clone_pairs(row: dict[str, Any]) -> list[tuple[str, str]]:
+    """任务 payload → 能力页的查询串。
+
+    模型型能力的 payload 是 ``{provider, model, policy, params:{点号路径}}``，
+    普通能力（剪辑）是扁平的表单值。两种都得还原成"能力页打开时该长什么样"。
+    """
+    payload = row.get("payload_obj") or {}
+    pairs: list[tuple[str, str]] = []
+    for key in ("provider", "model", "policy"):
+        if payload.get(key):
+            pairs.append((key, str(payload[key])))
+    params = payload.get("params")
+    body = params if isinstance(params, dict) else {
+        k: v for k, v in payload.items() if k not in ROUTE_KEYS
+    }
+    for key, value in body.items():
+        if isinstance(value, list):
+            pairs.extend((str(key), _flat_scalar(item)) for item in value)
+        else:
+            flat = _flat_scalar(value)
+            if flat:
+                pairs.append((str(key), flat))
+    return pairs
+
+
+def _flat_scalar(value: Any) -> str:
+    """参数值 → 能塞进 URL 的字符串。空串在表单里等于"没填"，会被丢掉。"""
+    if isinstance(value, bool):
+        return "true" if value else ""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)):
+        return str(value)
+    return json.dumps(value, ensure_ascii=False)
 
 
 def _paused_progress(error: dict[str, Any]) -> int:

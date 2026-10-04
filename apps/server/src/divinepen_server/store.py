@@ -629,6 +629,27 @@ class Repo:
             f"UPDATE dp_task SET {sets} WHERE id = ?", (*fields.values(), task_id)
         )
 
+    async def delete_task(self, task_id: str) -> bool:
+        """删一条任务。返回是否真的删掉了（用于区分"不存在"和"删了"）。"""
+        row = await self.db.query_one("SELECT id FROM dp_task WHERE id = ?", (task_id,))
+        if not row:
+            return False
+        await self.db.execute("DELETE FROM dp_task WHERE id = ?", (task_id,))
+        return True
+
+    async def purge_tasks(self, statuses: list[str]) -> int:
+        """按状态批量清账。调用方保证只传终态 —— 跑着的任务不是"垃圾"。"""
+        if not statuses:
+            return 0
+        marks = ", ".join("?" for _ in statuses)
+        row = await self.db.query_one(
+            f"SELECT COUNT(*) AS n FROM dp_task WHERE status IN ({marks})", tuple(statuses)
+        )
+        await self.db.execute(
+            f"DELETE FROM dp_task WHERE status IN ({marks})", tuple(statuses)
+        )
+        return int((row or {}).get("n", 0))
+
     # 设置 --------------------------------------------------------
     async def settings(self) -> dict[str, str]:
         rows = await self.db.query("SELECT k, v FROM dp_setting")

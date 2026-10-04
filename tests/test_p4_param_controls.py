@@ -237,9 +237,21 @@ def test_media_params_are_not_hand_typed_paths(client):
 
 
 def test_image_size_is_a_pickable_list(client):
-    """用户点名的那个问题：分辨率只给一个输入框。"""
+    """用户点名的那个问题：分辨率必须是下拉，不能是输入框。"""
     html = client.get("/capabilities/image.t2i").text
     control, block = _control_of_key(html, "parameters.size")
-    assert control == "combo", f"image.t2i 的 size 控件是 {control}"
-    assert re.search(r'list="dl-parameters\.size"', block), "size 没有挂上可选值下拉"
-    assert '<option value="1024*1024">' in block, "size 的下拉里没有常见分辨率"
+    assert control == "select", f"image.t2i 的 size 控件是 {control}，应为 select（下拉）"
+    assert re.search(r'<option value="1024\*1024"', block), "size 的下拉里没有常见分辨率"
+    assert re.search(r'<option value="1920\*1080"', block), "size 的下拉里缺 1080P（1920*1080）"
+
+
+def test_wan2p7_image_pro_offers_4k(client):
+    """4K 不是每个模型都有 —— 只有 wan2.7-image-pro 的文生图给，别处给了就是骗人。"""
+    html = client.get("/models/aliyun-bailian:wan2.7-image-pro").text
+    control, block = _control_of_key(html, "parameters.size")
+    assert control == "select"
+    assert re.search(r'<option value="4K"', block), "Pro 版的分辨率下拉里没有 4K"
+
+    plain = client.get("/models/aliyun-bailian:wan2.7-image").text
+    _, plain_block = _control_of_key(plain, "parameters.size")
+    assert not re.search(r'<option value="4K"', plain_block), "标准版不该出现 4K"

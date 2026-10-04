@@ -344,7 +344,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ── 面包屑自动生成 ──────────────────────────────────────────
     # 根据 URL 路径推断面包屑层级。每个页面不用单独传 crumbs，
     # 只要路径遵循 ``/section`` 或 ``/section/detail`` 的惯例就能自动拼出来。
-    _CRUMB_LABELS: dict[str, str] = {
+    crumb_labels: dict[str, str] = {
         "capabilities": "能力目录",
         "models": "模型管理",
         "credentials": "配置管理",
@@ -364,7 +364,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return crumbs
         # 第一段 = 分区
         section = parts[0]
-        label = _CRUMB_LABELS.get(section, section)
+        label = crumb_labels.get(section, section)
         if len(parts) == 1:
             # 分区首页（如 /models）：不链自己
             crumbs.append({"label": label, "href": ""})
@@ -1422,7 +1422,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
              "user_id": getattr(request.state, "user", None) and request.state.user["id"]}
         )
         _spawn(_run_background(instance, task_id, capability_id, payload, billed_allowed=True))
-        return RedirectResponse(flash_url(f"/tasks/{task_id}", "已提交后台执行，去任务中心看进度"), 303)
+        return RedirectResponse(
+            flash_url(f"/tasks/{task_id}",
+                      f"已提交执行，任务 {task_id[:12]}…"),
+            303)
 
     @app.post("/tasks/{task_id}/resume")
     async def task_resume(request: Request, task_id: str):

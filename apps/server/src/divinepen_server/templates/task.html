@@ -5,8 +5,17 @@
 {% set paused = (task.result_obj or {}).paused %}
 {% set arts = (task.result_obj or {}).artifacts %}
 <div class="page-head">
-  <h1>任务 {{ task.id }}</h1>
-  <p>{{ task.capability_id }} · {{ task.model or '（不绑模型）' }} · {{ state(task.status) }}</p>
+  <div class="toolbar" style="margin-bottom:var(--s3)">
+    <a class="btn ghost" href="/tasks">← 任务中心</a>
+    <a class="btn ghost" href="/capabilities/{{ task.capability_id }}">← {{ task.capability_id }}</a>
+  </div>
+  <h1>任务详情</h1>
+  <p>
+    <code class="mono" style="font-size:13px;color:var(--ink-3)">{{ task.id }}</code>
+    · {{ task.capability_id }}
+    · {{ task.model or '（不绑模型）' }}
+    · {{ state(task.status) }}
+  </p>
 </div>
 
 {% if paused %}

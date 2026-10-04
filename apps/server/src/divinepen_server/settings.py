@@ -80,7 +80,6 @@ class Settings:
             session_max_age_hours=int(_env("SESSION_MAX_AGE_HOURS", "6") or 6),
             allow_register=_flag("ALLOW_REGISTER", True),
             auth_required=_flag("AUTH_REQUIRED", False),
-
             connectivity_model=_env("CONNECTIVITY_MODEL", "qwen3.7-plus"),
             credential_key=_env("CREDENTIAL_KEY"),
             oss_enabled=_flag("OSS_ENABLED"),

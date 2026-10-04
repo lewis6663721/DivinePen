@@ -171,7 +171,9 @@ def test_cancel_survives_a_provider_that_cannot_be_canceled(client):
     别再花我钱了"，本地停住是底线；远端结果如实回报即可。
     """
     task_id = _insert_task(
-        status="RUNNING", provider="pytest-ghost", model="ghost-model",
+        status="RUNNING",
+        provider="pytest-ghost",
+        model="ghost-model",
         remote_task_id="remote-abc",
     )
     resp = client.post(f"/tasks/{task_id}/cancel", follow_redirects=False)

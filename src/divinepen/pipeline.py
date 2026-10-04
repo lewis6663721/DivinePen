@@ -40,6 +40,8 @@ class StepSpec(BaseModel):
     #: 人工闸口：执行到这里先停下，等 resume 带确认/改参回来（interactive 模式的核心）
     gate: bool = False
     gate_prompt: str = Field(default="", description="停在闸口时问用户什么")
+
+
 class Recipe(BaseModel):
     """一条流水线的静态定义。"""
 

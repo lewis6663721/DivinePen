@@ -384,7 +384,9 @@ class Repo:
         row = await self.db.query_one("SELECT * FROM dp_credential WHERE id = ?", (cred_id,))
         return self.shape_credential(row) if row else None
 
-    async def raw_api_key(self, provider: str, workspace: str = "", label: str | None = None) -> str:
+    async def raw_api_key(
+        self, provider: str, workspace: str = "", label: str | None = None
+    ) -> str:
         row = await self.credential(provider, workspace, label)
         if not row:
             return ""
@@ -645,9 +647,7 @@ class Repo:
         row = await self.db.query_one(
             f"SELECT COUNT(*) AS n FROM dp_task WHERE status IN ({marks})", tuple(statuses)
         )
-        await self.db.execute(
-            f"DELETE FROM dp_task WHERE status IN ({marks})", tuple(statuses)
-        )
+        await self.db.execute(f"DELETE FROM dp_task WHERE status IN ({marks})", tuple(statuses))
         return int((row or {}).get("n", 0))
 
     # 设置 --------------------------------------------------------

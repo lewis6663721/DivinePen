@@ -216,7 +216,9 @@ class Capability(ABC):
             # 不能拿 "image.t2i" 去查凭据表。
             providers = await _resolve_credential_providers(ctx, self.manifest)
             if not providers:
-                missing.append(f"没有供应商注册了 {self.manifest.model_capability or self.manifest.id} 的模型")
+                missing.append(
+                    f"没有供应商注册了 {self.manifest.model_capability or self.manifest.id} 的模型"
+                )
             else:
                 any_ready = False
                 for p in providers:
@@ -233,7 +235,9 @@ class Capability(ABC):
         if missing:
             if any("API Key" in m for m in missing):
                 providers = await _resolve_credential_providers(ctx, self.manifest)
-                raise CredentialMissing(" · ".join(missing), detail={"provider": providers[0] if providers else ""})
+                raise CredentialMissing(
+                    " · ".join(missing), detail={"provider": providers[0] if providers else ""}
+                )
             raise MediaToolMissing(" · ".join(missing), detail={"missing": missing})
 
     # ── 核心：plan / execute ──────────────────────────────────────

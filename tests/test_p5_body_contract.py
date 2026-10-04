@@ -94,7 +94,7 @@ def test_hand_built_json_messages_are_passed_through():
 
 def test_malformed_json_falls_back_to_plain_text():
     """用户想写 JSON 但括号写坏了 —— 他要的是出图，不是被校验括号。"""
-    body = _messages_schema().build_body({"input.messages": '[一只猫'})
+    body = _messages_schema().build_body({"input.messages": "[一只猫"})
     assert body["input"]["messages"][0]["content"] == [{"text": "[一只猫"}]
 
 
@@ -178,9 +178,7 @@ def test_prompt_fields_are_left_as_plain_strings():
             }
         ]
     )
-    assert schema.build_body({"input.prompt": "小猫吃鱼"}) == {
-        "input": {"prompt": "小猫吃鱼"}
-    }
+    assert schema.build_body({"input.prompt": "小猫吃鱼"}) == {"input": {"prompt": "小猫吃鱼"}}
 
 
 # ── 老库兼容：DB 里那份 params 还没有 wrap ───────────────────────
@@ -206,10 +204,7 @@ def test_the_seeded_catalog_marks_its_messages_field():
     from divinepen_server.catalog import _models
 
     marked = [
-        (m.key, f.key)
-        for m in _models()
-        for f in m.params.fields()
-        if f.key == "input.messages"
+        (m.key, f.key) for m in _models() for f in m.params.fields() if f.key == "input.messages"
     ]
     assert marked, "目录里应该有吃 messages 的模型（千问图像）"
     for model_key, field_key in marked:
@@ -257,9 +252,7 @@ def test_the_400_payload_from_the_task_log_now_builds_a_legal_body():
     }
     model = next(m for m in _models() if m.key == "qwen-image-3.0-pro")
     schema = model.params
-    normalized = schema.validate_values(
-        {k: _coerce_like_form(v) for k, v in payload.items()}
-    )
+    normalized = schema.validate_values({k: _coerce_like_form(v) for k, v in payload.items()})
     body = schema.build_body(normalized)
 
     assert model.params.field_map()["input.messages"].wrap == "messages"

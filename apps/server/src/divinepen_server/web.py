@@ -100,6 +100,7 @@ KIND_META: dict[str, dict[str, str]] = {
     },
 }
 
+
 def _short_reason(text: str) -> str:
     """把「未配置供应商 video.t2v 的 API Key」压成「未配 API Key」。
 
@@ -248,10 +249,32 @@ _CONTROL_MAP = {
 #: 媒体参数能引用的文件类型。剪辑能力吃视频/音频/字幕，模型能力吃图片/音频。
 _MEDIA_EXT = frozenset(
     {
-        ".mp4", ".mov", ".mkv", ".webm", ".avi", ".flv", ".m4v",
-        ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus",
-        ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tiff",
-        ".srt", ".ass", ".vtt", ".txt", ".md",
+        ".mp4",
+        ".mov",
+        ".mkv",
+        ".webm",
+        ".avi",
+        ".flv",
+        ".m4v",
+        ".mp3",
+        ".wav",
+        ".m4a",
+        ".aac",
+        ".flac",
+        ".ogg",
+        ".opus",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".bmp",
+        ".gif",
+        ".tiff",
+        ".srt",
+        ".ass",
+        ".vtt",
+        ".txt",
+        ".md",
     }
 )
 _MEDIA_CACHE: dict[str, Any] = {"at": 0.0, "items": []}
@@ -545,11 +568,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             item["subcategory"] = category_label(item.get("model_capability") or item["id"])
             buckets.setdefault(prefix, []).append(item)
         for prefix in sorted(buckets, key=broad_sort):
-            toolkit_groups.append({
-                "prefix": prefix,
-                "label": broad_label(prefix + "."),
-                "caps": buckets[prefix],
-            })
+            toolkit_groups.append(
+                {
+                    "prefix": prefix,
+                    "label": broad_label(prefix + "."),
+                    "caps": buckets[prefix],
+                }
+            )
 
         zones: list[dict[str, Any]] = []
         for key, meta in KIND_META.items():
@@ -599,11 +624,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 counts=await nav_counts(instance),
             )
         cap = instance.registry.get(capability_id)
-        raw = {
-            key: value
-            for key, value in request.query_params.items()
-            if not key.startswith("_")
-        }
+        raw = {key: value for key, value in request.query_params.items() if not key.startswith("_")}
         # 只带路由键的 URL = "打开这一页"，不是"提交一次表单"。
         picker, values, _ = await _capability_input(
             instance, cap, raw, submitted=any(k not in ROUTE_KEYS for k in raw)
@@ -638,9 +659,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         cap = instance.registry.get(capability_id)
         form = await request.form()
         raw_values = {k: v for k, v in form.items() if not k.startswith("_")}
-        picker, values, payload = await _capability_input(
-            instance, cap, raw_values, submitted=True
-        )
+        picker, values, payload = await _capability_input(instance, cap, raw_values, submitted=True)
         info = cap.info()
         if picker is not None:
             info["form"] = picker["form"]
@@ -700,11 +719,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "label": broad_label(cap_key),
                     "subs": [],
                 }
-            broad_buckets[prefix]["subs"].append({
-                "capability": cap_key,
-                "label": category_label(cap_key),
-                "models": cap_rows,
-            })
+            broad_buckets[prefix]["subs"].append(
+                {
+                    "capability": cap_key,
+                    "label": category_label(cap_key),
+                    "models": cap_rows,
+                }
+            )
 
         grouped = sorted(broad_buckets.values(), key=lambda g: broad_sort(g["prefix"]))
         # 分类下拉：能力分类键 → 中文名
@@ -747,12 +768,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             prefix = cap_key.split(".", 1)[0]
             if prefix not in cap_groups:
                 cap_groups[prefix] = []
-            cap_groups[prefix].append({
-                "key": cap_key,
-                "label": category_label(cap_key),
-            })
+            cap_groups[prefix].append(
+                {
+                    "key": cap_key,
+                    "label": category_label(cap_key),
+                }
+            )
         capabilities_grouped = sorted(
-            [{"prefix": k, "broad": broad_label(k + "."), "caps": v} for k, v in cap_groups.items()],
+            [
+                {"prefix": k, "broad": broad_label(k + "."), "caps": v}
+                for k, v in cap_groups.items()
+            ],
             key=lambda g: broad_sort(g["prefix"]),
         )
         return {
@@ -787,17 +813,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             spec = mf.build_spec(form)
         except mf.FormError as exc:
             return render(
-                request, "model_form.html", status_code=422, title="新增模型",
-                spec=mf.echo_form(form), editing=False, errors=exc.errors,
-                **await model_form_ctx(instance), counts=await nav_counts(instance),
+                request,
+                "model_form.html",
+                status_code=422,
+                title="新增模型",
+                spec=mf.echo_form(form),
+                editing=False,
+                errors=exc.errors,
+                **await model_form_ctx(instance),
+                counts=await nav_counts(instance),
             )
         model_id = f"{spec.provider}:{spec.key}"
         if await instance.repo.model(model_id):
             return render(
-                request, "model_form.html", status_code=422, title="新增模型",
-                spec=mf.echo_form(form), editing=False,
+                request,
+                "model_form.html",
+                status_code=422,
+                title="新增模型",
+                spec=mf.echo_form(form),
+                editing=False,
                 errors={"key": f"{model_id} 已经在库里了；同一供应商下模型名唯一，要改就去编辑它"},
-                **await model_form_ctx(instance), counts=await nav_counts(instance),
+                **await model_form_ctx(instance),
+                counts=await nav_counts(instance),
             )
         await instance.repo.upsert_model(spec, force=True)
         note = f"已新增 {model_id}（{len(spec.params.fields())} 个参数）"
@@ -810,13 +847,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         instance = get_app()
         model = await instance.repo.model(model_id)
         if not model:
-            return render(request, "error.html", status_code=404, title="找不到模型",
-                          detail=f"库里没有这个模型：{model_id}",
-                          counts=await nav_counts(instance))
+            return render(
+                request,
+                "error.html",
+                status_code=404,
+                title="找不到模型",
+                detail=f"库里没有这个模型：{model_id}",
+                counts=await nav_counts(instance),
+            )
         return render(
-            request, "model_form.html", title=f"编辑 {model['name']}",
-            spec=mf.spec_to_form(model), editing=True, model_id=model_id, errors={},
-            **await model_form_ctx(instance), counts=await nav_counts(instance),
+            request,
+            "model_form.html",
+            title=f"编辑 {model['name']}",
+            spec=mf.spec_to_form(model),
+            editing=True,
+            model_id=model_id,
+            errors={},
+            **await model_form_ctx(instance),
+            counts=await nav_counts(instance),
         )
 
     @app.post("/models/{model_id:path}/edit", response_class=HTMLResponse)
@@ -824,22 +872,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         instance = get_app()
         model = await instance.repo.model(model_id)
         if not model:
-            return render(request, "error.html", status_code=404, title="找不到模型",
-                          detail=f"库里没有这个模型：{model_id}",
-                          counts=await nav_counts(instance))
+            return render(
+                request,
+                "error.html",
+                status_code=404,
+                title="找不到模型",
+                detail=f"库里没有这个模型：{model_id}",
+                counts=await nav_counts(instance),
+            )
         form = await request.form()
         try:
             spec = mf.build_spec(form, existing=model)
         except mf.FormError as exc:
             return render(
-                request, "model_form.html", status_code=422, title=f"编辑 {model['name']}",
-                spec=mf.echo_form(form), editing=True, model_id=model_id, errors=exc.errors,
-                **await model_form_ctx(instance), counts=await nav_counts(instance),
+                request,
+                "model_form.html",
+                status_code=422,
+                title=f"编辑 {model['name']}",
+                spec=mf.echo_form(form),
+                editing=True,
+                model_id=model_id,
+                errors=exc.errors,
+                **await model_form_ctx(instance),
+                counts=await nav_counts(instance),
             )
         if f"{spec.provider}:{spec.key}" != model_id:
             return RedirectResponse(
-                flash_url(f"/models/{model_id}/edit",
-                          "供应商与模型名是身份，不能改；要换名字请删掉重建。", "danger"),
+                flash_url(
+                    f"/models/{model_id}/edit",
+                    "供应商与模型名是身份，不能改；要换名字请删掉重建。",
+                    "danger",
+                ),
                 303,
             )
         await instance.repo.upsert_model(spec, force=True)
@@ -855,9 +918,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ok = form.get("verified") == "1"
         await instance.repo.set_model_verified(model_id, ok)
         return RedirectResponse(
-            flash_url(f"/models/{model_id}",
-                      "已标记为「已核对」——参数逐字对过文档了" if ok
-                      else "已退回「待核对」"), 303,
+            flash_url(
+                f"/models/{model_id}",
+                "已标记为「已核对」——参数逐字对过文档了" if ok else "已退回「待核对」",
+            ),
+            303,
         )
 
     @app.post("/models/{model_id:path}/delete")
@@ -866,9 +931,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         used = await instance.repo.model_in_use(model_id)
         if used:
             return RedirectResponse(
-                flash_url(f"/models/{model_id}",
-                          f"{model_id} 被 {used} 条任务记录引用，删掉它们就会指向一个查不到的"
-                          "模型。要下线请改用「停用」。", "danger"),
+                flash_url(
+                    f"/models/{model_id}",
+                    f"{model_id} 被 {used} 条任务记录引用，删掉它们就会指向一个查不到的"
+                    "模型。要下线请改用「停用」。",
+                    "danger",
+                ),
                 303,
             )
         await instance.repo.delete_model(model_id)
@@ -1065,7 +1133,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         # 已配置的排前面（用户 90% 的时间只关心这一撮），组内保持目录顺序。
         rows.sort(key=lambda r: (not r["configured"], not r["p"].get("enabled")))
-
 
         if scope == "configured":
             rows = [r for r in rows if r["configured"]]
@@ -1265,7 +1332,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if oss_access_key_secret:
             s.oss_access_key_secret = oss_access_key_secret
 
-        return RedirectResponse(flash_url("/credentials", "OSS 配置已保存，重启服务后完全生效"), 303)
+        return RedirectResponse(
+            flash_url("/credentials", "OSS 配置已保存，重启服务后完全生效"), 303
+        )
 
     # ── 用量与费用 ─────────────────────────────────────────────
 
@@ -1430,42 +1499,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def capability_run(request: Request, capability_id: str):
         instance = get_app()
         if not instance.registry.has(capability_id):
-            return render(request, "error.html", status_code=404, title="找不到能力",
-                          detail=f"未注册的能力：{capability_id}")
+            return render(
+                request,
+                "error.html",
+                status_code=404,
+                title="找不到能力",
+                detail=f"未注册的能力：{capability_id}",
+            )
         cap = instance.registry.get(capability_id)
         form = await request.form()
         raw = {k: v for k, v in form.items() if not k.startswith("_") and v != ""}
         picker, _, payload = await _capability_input(instance, cap, raw, submitted=True)
         task_id = await instance.repo.create_task(
-            {"capability_id": capability_id,
-             "provider": (picker or {}).get("provider", {}).get("code", "") if picker
-             else (cap.manifest.model_capability or ""),
-             "model": (picker or {}).get("model", {}).get("key", "") if picker else "",
-             "status": "PENDING", "payload": payload,
-             "user_id": getattr(request.state, "user", None) and request.state.user["id"]}
+            {
+                "capability_id": capability_id,
+                "provider": (picker or {}).get("provider", {}).get("code", "")
+                if picker
+                else (cap.manifest.model_capability or ""),
+                "model": (picker or {}).get("model", {}).get("key", "") if picker else "",
+                "status": "PENDING",
+                "payload": payload,
+                "user_id": getattr(request.state, "user", None) and request.state.user["id"],
+            }
         )
         _spawn(
             _run_background(instance, task_id, capability_id, payload, billed_allowed=True),
             task_id=task_id,
         )
         return RedirectResponse(
-            flash_url(f"/tasks/{task_id}",
-                      f"已提交执行，任务 {task_id[:12]}…"),
-            303)
+            flash_url(f"/tasks/{task_id}", f"已提交执行，任务 {task_id[:12]}…"), 303
+        )
 
     @app.post("/tasks/{task_id}/resume")
     async def task_resume(request: Request, task_id: str):
         instance = get_app()
         row = await instance.repo.task(task_id)
         if not row or row["status"] != "AWAITING_INPUT":
-            return RedirectResponse(flash_url("/tasks", "该任务不在等待人工介入的状态", "danger"), 303)
+            return RedirectResponse(
+                flash_url("/tasks", "该任务不在等待人工介入的状态", "danger"), 303
+            )
         paused = (row.get("result_obj") or {}).get("paused") or {}
         form = await request.form()
         raw = str(form.get("approvals") or "{}").strip()
         try:
             approvals = json.loads(raw) if raw else {}
         except json.JSONDecodeError:
-            return RedirectResponse(flash_url(f"/tasks/{task_id}", "介入参数不是合法 JSON", "danger"), 303)
+            return RedirectResponse(
+                flash_url(f"/tasks/{task_id}", "介入参数不是合法 JSON", "danger"), 303
+            )
         if not isinstance(approvals, dict):
             approvals = {paused.get("step_id", ""): approvals}
         step_id = paused.get("step_id")
@@ -1478,9 +1559,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
         await instance.repo.update_task(task_id, status="PENDING", result=dumps({}))
         _spawn(
-            _run_background(instance, task_id, row["capability_id"],
-                            row.get("payload_obj") or {}, billed_allowed=True,
-                            resume=resume, approvals=approvals),
+            _run_background(
+                instance,
+                task_id,
+                row["capability_id"],
+                row.get("payload_obj") or {},
+                billed_allowed=True,
+                resume=resume,
+                approvals=approvals,
+            ),
             task_id=task_id,
         )
         return RedirectResponse(flash_url(f"/tasks/{task_id}", "已带着你的确认继续执行"), 303)
@@ -1735,9 +1822,7 @@ async def _picker_context(
 
     return {
         "capability": model_capability,
-        "providers": [
-            {**p, "models": [_spec_brief(m) for m in p["models"]]} for p in providers
-        ],
+        "providers": [{**p, "models": [_spec_brief(m) for m in p["models"]]} for p in providers],
         "provider": chosen,
         "models": [_spec_brief(m) for m in candidates],
         "model": _spec_brief(model) if model else None,
@@ -1849,6 +1934,7 @@ def _log_bg_error(task: Any) -> None:
 
 
 # ── 异步后台执行（pipeline / interactive 模式的运行方式）─────
+
 
 async def _run_background(
     instance: rt.App,
@@ -1990,9 +2076,7 @@ async def _cancel_remote(instance: rt.App, row: dict[str, Any], remote_task_id: 
         api_key = await instance.credentials.get(provider)
         req = aliyun.cancel_request(model, remote_task_id, api_key=api_key)
         resp = await instance.http.request(
-            HttpRequest(
-                method=req.method, url=req.url, headers=req.headers, timeout=30.0
-            )
+            HttpRequest(method=req.method, url=req.url, headers=req.headers, timeout=30.0)
         )
     except DivinePenError as exc:
         return f"；远端取消没成功（{exc}），它可能还在跑"
@@ -2015,9 +2099,11 @@ def _clone_pairs(row: dict[str, Any]) -> list[tuple[str, str]]:
         if payload.get(key):
             pairs.append((key, str(payload[key])))
     params = payload.get("params")
-    body = params if isinstance(params, dict) else {
-        k: v for k, v in payload.items() if k not in ROUTE_KEYS
-    }
+    body = (
+        params
+        if isinstance(params, dict)
+        else {k: v for k, v in payload.items() if k not in ROUTE_KEYS}
+    )
     for key, value in body.items():
         if isinstance(value, list):
             pairs.extend((str(key), _flat_scalar(item)) for item in value)

@@ -240,19 +240,34 @@ _GATE_RECIPE = Recipe(
     id="test.gate",
     name="闸口自检",
     steps=[
-        StepSpec(id="clip", capability="media.trim",
-                 inputs={"source": "$params.source", "duration": "$params.duration", "reencode": True}),
-        StepSpec(id="packaged", capability="media.pip", gate=True,
-                 gate_prompt="裁剪结果 OK 吗？",
-                 inputs={"base": "$clip.uri", "overlay": "$params.logo", "position": "top_right", "width": 40}),
+        StepSpec(
+            id="clip",
+            capability="media.trim",
+            inputs={"source": "$params.source", "duration": "$params.duration", "reencode": True},
+        ),
+        StepSpec(
+            id="packaged",
+            capability="media.pip",
+            gate=True,
+            gate_prompt="裁剪结果 OK 吗？",
+            inputs={
+                "base": "$clip.uri",
+                "overlay": "$params.logo",
+                "position": "top_right",
+                "width": 40,
+            },
+        ),
     ],
 )
 
 
 class _GateCap(PipelineCapability):
     manifest = CapabilityManifest(
-        id="media.test_gate", name="闸口自检", category=Category.MEDIA,
-        description="测试用：第二步是人工闸口", agent_mode=AgentMode.INTERACTIVE,
+        id="media.test_gate",
+        name="闸口自检",
+        category=Category.MEDIA,
+        description="测试用：第二步是人工闸口",
+        agent_mode=AgentMode.INTERACTIVE,
     )
     recipe = _GATE_RECIPE
     Input = _GateRecipeInput
@@ -277,7 +292,11 @@ async def test_gate_pauses_then_resumes(assets, tmp_path):
     ctx2 = divinepen.local_context(
         media_root=tmp_path / "media",
         registry=registry,
-        resume={"outputs": detail["outputs"], "steps": detail["steps"], "start_index": detail["start_index"]},
+        resume={
+            "outputs": detail["outputs"],
+            "steps": detail["steps"],
+            "start_index": detail["start_index"],
+        },
         gate_approvals={"packaged": {"width": 50}},
     )
     second = await registry.get("media.test_gate").invoke(values, ctx2)

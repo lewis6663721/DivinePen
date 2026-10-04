@@ -184,7 +184,9 @@ def _model_ids(client) -> list[str]:
 
 def _control_of_key(html: str, key: str) -> tuple[str, str]:
     """从页面里抠出某个参数所在字段块的 (控件名, 整块 HTML)。"""
-    for match in re.finditer(r'<div class="field" data-control="([^"]*)">(.*?)\n</div>', html, re.S):
+    for match in re.finditer(
+        r'<div class="field" data-control="([^"]*)">(.*?)\n</div>', html, re.S
+    ):
         if f'<code class="key">{key}</code>' in match.group(2):
             return match.group(1), match.group(2)
     return "", ""

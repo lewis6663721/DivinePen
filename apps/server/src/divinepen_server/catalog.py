@@ -1027,7 +1027,12 @@ def _models() -> list[ModelSpec]:
                 pricing=TOKEN_PRICE,
                 notes="走 OpenAI 兼容端点，支持图片 URL 输入。",
                 doc_url="https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope",
-                meta={"source_doc": "vision.md", "verified": True, "priority": priority, "blocked_by": ""},
+                meta={
+                    "source_doc": "vision.md",
+                    "verified": True,
+                    "priority": priority,
+                    "blocked_by": "",
+                },
             )
         )
 
@@ -1073,7 +1078,12 @@ def _models() -> list[ModelSpec]:
                 pricing=TOKEN_PRICE,
                 notes="走 OpenAI 兼容端点。",
                 doc_url="https://help.aliyun.com/zh/model-studio/text-embedding-api-reference",
-                meta={"source_doc": "embedding.md", "verified": True, "priority": priority, "blocked_by": ""},
+                meta={
+                    "source_doc": "embedding.md",
+                    "verified": True,
+                    "priority": priority,
+                    "blocked_by": "",
+                },
             )
         )
 
@@ -1109,9 +1119,7 @@ def _models() -> list[ModelSpec]:
         headers={"Content-Type": "application/json"},
         mode="sync",
     )
-    for key, priority, note in (
-        ("qwen3.7-text-rerank", 10, "推荐"),
-    ):
+    for key, priority, note in (("qwen3.7-text-rerank", 10, "推荐"),):
         out.append(
             ModelSpec(
                 provider=PROVIDER_ALIYUN,
@@ -1124,7 +1132,12 @@ def _models() -> list[ModelSpec]:
                 pricing=TOKEN_PRICE,
                 notes="走 OpenAI 兼容端点。",
                 doc_url="https://help.aliyun.com/zh/model-studio/text-rerank-api-reference",
-                meta={"source_doc": "rerank.md", "verified": True, "priority": priority, "blocked_by": ""},
+                meta={
+                    "source_doc": "rerank.md",
+                    "verified": True,
+                    "priority": priority,
+                    "blocked_by": "",
+                },
             )
         )
 
@@ -1296,9 +1309,7 @@ def _models() -> list[ModelSpec]:
             name="音乐生成 fun-music-v1",
             region="cn-beijing",
             enabled=False,
-            api=ApiSpec(
-                method="WEBSOCKET", path="/api-ws/v1/inference", headers={}, mode="sync"
-            ),
+            api=ApiSpec(method="WEBSOCKET", path="/api-ws/v1/inference", headers={}, mode="sync"),
             params=music_params,
             pricing=_price(CostUnit.SECOND, "按生成音频秒数计费。"),
             notes="**一期未接入**：音乐生成走 WebSocket，需单独传输实现。",

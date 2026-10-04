@@ -216,9 +216,7 @@ def test_dry_run_uses_the_selected_model(client, model):
     html = r.text
     assert model.key in html
     # 只提交了 input.prompt，其余参数取模型默认值
-    body = model.params.build_body(
-        model.params.validate_values({"input.prompt": "预演用的一句话"})
-    )
+    body = model.params.build_body(model.params.validate_values({"input.prompt": "预演用的一句话"}))
     assert body["input"]["prompt"] == "预演用的一句话"
     assert "input.audio_url" in html or "input.audio_url" not in body["input"]
 

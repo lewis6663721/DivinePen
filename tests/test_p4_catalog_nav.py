@@ -98,7 +98,7 @@ def test_agent_zone_groups_by_run_mode(client, truth):
     html = client.get("/capabilities", params={"zone": "agent"}).text
     for mode in ("pipeline", "interactive", "react"):
         if any(mode in c for c in truth["agent"]):
-            assert f"<b style=\"color:var(--signal)\">{mode} · " in html
+            assert f'<b style="color:var(--signal)">{mode} · ' in html
 
 
 # ── 侧栏 ────────────────────────────────────────────────────────
@@ -114,7 +114,9 @@ def test_sidebar_groups_are_collapsible(client):
 def test_current_sidebar_group_is_open_and_marked(client):
     """当前分组默认展开；同时带 data-current，收起后仍能看出当前在哪。"""
     html = client.get("/capabilities").text
-    current = [g for g in re.findall(r'<details class="navgroup"[^>]*>', html) if "data-current" in g]
+    current = [
+        g for g in re.findall(r'<details class="navgroup"[^>]*>', html) if "data-current" in g
+    ]
     assert len(current) == 1
     assert "open" in current[0]
     # 能力目录属于"模型与能力"这一组
@@ -123,14 +125,18 @@ def test_current_sidebar_group_is_open_and_marked(client):
 
 def test_capability_detail_keeps_the_same_group_open(client):
     html = client.get("/capabilities/media.trim").text
-    current = [g for g in re.findall(r'<details class="navgroup"[^>]*>', html) if "data-current" in g]
+    current = [
+        g for g in re.findall(r'<details class="navgroup"[^>]*>', html) if "data-current" in g
+    ]
     assert len(current) == 1
     assert 'data-remember="nav:模型与能力"' in current[0]
 
 
 def test_other_pages_mark_their_own_group(client):
     html = client.get("/credentials").text
-    current = [g for g in re.findall(r'<details class="navgroup"[^>]*>', html) if "data-current" in g]
+    current = [
+        g for g in re.findall(r'<details class="navgroup"[^>]*>', html) if "data-current" in g
+    ]
     assert len(current) == 1
     assert 'data-remember="nav:系统"' in current[0]
 

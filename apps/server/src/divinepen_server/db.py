@@ -534,7 +534,14 @@ async def connect_store(dsn: str) -> Store:
             password=parsed.password or "",
             db=(parsed.path or "/divinepen").lstrip("/"),
             charset="utf8mb4",
-            autocommit=False,
+            # autocommit **必须**为 True。原先这里是 False，而读路径 `_fetch` 查询完
+            # 既不 commit 也不 rollback —— 于是连接一直挂着一个未结束的事务，
+            # MySQL 默认 REPEATABLE READ 下它就一直读**那条事务开始时的快照**：
+            # 别的会话（含轮询器、后台写入）改了库，页面也永远看不到。
+            # 症状极具误导性：改完目录、重启前后页面表现不一致；异步任务进度
+            # 写进库了却刷不出来。这里没有跨语句事务（全库没有 BEGIN），
+            # 所以每条语句各自成事务不会牺牲任何原子性。
+            autocommit=True,
             minsize=1,
             maxsize=8,
             pool_recycle=1800,

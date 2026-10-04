@@ -594,3 +594,45 @@ SQLite 只能重建表（拷数据、换名），MySQL 可以就地 `DROP INDEX`
 `i.now`（此前这个类名在 CSS 里有、模板里从来没输出过 —— 跑着的任务看起来
 和排队的一模一样）。`state()` 宏加 `data-status`：颜色给眼睛，属性给测试和读屏。
 
+
+## 18. 一段 body 只能有一个组装者（P5 修订）
+
+**事故**：`image.t2i` 提交必 400 ——
+`InvalidParameter content format is incorrect`。
+页面上参数填了、预览也显示一份合法 body，一提交就被打回。
+
+**根因不是参数抄错，是"扁平值 → 请求体"这件事有两份实现**：
+
+| | 走哪份代码 | 有没有 messages 包壳 |
+| --- | --- | --- |
+| 页面预览（dry-run） | `apps/server/…/runtime.assemble_body` | 有 |
+| 真实提交 | `divinepen.core.specs.ParamsSchema.build_body` | 没有 |
+
+《千问图像生成》要求 `input.messages` 是
+`[{"role":"user","content":[{"text":"…"}]}]`（"content **array**（必选）"）。
+包壳这条规则当初只加在了预览那份上，于是**预览合法、真实请求发裸字符串**。
+用户看到的现象是"照着文档填、预览也对，怎么一提交就 400"。
+
+**修法不是"把两份改成一致"，是让第二份不存在**：
+
+- `runtime.assemble_body` 退化成一行转发到 `ParamsSchema.build_body`，
+  预览与真实调用**从结构上不可能不一致**；
+- 文档对字段形状的要求（"必须是数组"）属于**字段自己的属性**，
+  所以落到 `FieldSpec.wrap`（本期只有 `"messages"`），由 `_f(..., wrap=...)`
+  在目录里声明 —— 不在调用方各自实现；
+- `normalize_value()` 是唯一的规范化入口，另有一层按 key 的兜底：
+  老库里的 `params` JSON 还没有 `wrap`，不能因为"库里没这个标记"
+  就继续发裸字符串。目录重新导入后由标记正式接管。
+
+**顺带收紧的一处**：必填文本只填空白 = 没填。
+以前它一路走到供应商那儿换一句 `InvalidParameter`；现在在页面校验阶段
+就报"缺少必填参数：input.messages"。
+
+**契约测试**（`tests/test_p5_body_contract.py`）守两条，第二条更重要：
+
+1. **形状** —— 文档写 content 是数组，就必须是数组（对着文档逐字）；
+2. **同源** —— `preview_request(...).body == schema.build_body(values)`。
+   第 1 条只守住今天这个字段；第 2 条守住的是"以后没人能再偷偷分家"。
+
+同系模型也一并覆盖：凡吃 `input.messages` 的模型（千问图像 pro / 标准）
+纯文本提示词都必须被包成数组，而不只是今天报错的那一个。

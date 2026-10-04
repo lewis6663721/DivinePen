@@ -62,36 +62,14 @@ def get_path(source: Any, key: str, default: Any = None) -> Any:
 
 
 def assemble_body(schema: ParamsSchema, values: dict[str, Any]) -> dict[str, Any]:
-    """扁平值 → 嵌套请求体。**顺序按 schema 声明**，方便页面对照文档。"""
-    body: dict[str, Any] = {}
-    for field in schema.fields():
-        if field.key not in values:
-            continue
-        value = values[field.key]
-        if value is None:
-            continue
-        # 图片/视频模型的 messages 字段：纯文本自动包成 OpenAI 格式
-        if field.key == "input.messages" and isinstance(value, str) and value.strip():
-            value = _wrap_messages(value.strip())
-        set_path(body, field.key, value)
-    return body
+    """扁平值 → 嵌套请求体。
 
-
-def _wrap_messages(text: str) -> list[dict[str, Any]]:
-    """纯文本 → OpenAI messages 格式。
-
-    如果用户直接填了 JSON（以 [ 或 { 开头），原样返回；
-    否则包成 ``[{"role":"user","content":[{"text":"..."}]}]``。
+    **这里只是转发**：真正的实现在 ``ParamsSchema.build_body``（核心包），
+    预览和真实调用共用它。曾经这里有一份自己的实现，还比核心那份多了一条
+    "messages 自动包壳"的规则 —— 于是页面预览合法、真实请求被 400。
+    组件只有一份，才谈得上"预览即所发"。保留这个名字是为了不打断调用方。
     """
-    import json as _json
-
-    stripped = text.strip()
-    if stripped.startswith("[") or stripped.startswith("{"):
-        try:
-            return _json.loads(stripped)
-        except _json.JSONDecodeError:
-            pass
-    return [{"role": "user", "content": [{"text": stripped}]}]
+    return schema.build_body(values)
 
 
 # ── 端口实现 ───────────────────────────────────────────────────────

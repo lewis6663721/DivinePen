@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from divinepen.core.manifest import CostUnit
 from divinepen.core.specs import (
@@ -104,6 +104,7 @@ def _f(
     max_length: int | None = None,
     advanced: bool = False,
     placeholder: str = "",
+    wrap: Literal["messages"] | None = None,
 ) -> FieldSpec:
     return FieldSpec(
         key=key,
@@ -120,6 +121,7 @@ def _f(
         max_length=max_length,
         advanced=advanced,
         placeholder=placeholder,
+        wrap=wrap,
     )
 
 
@@ -633,6 +635,7 @@ def _models() -> list[ModelSpec]:
                         "描述",
                         FieldType.TEXTAREA,
                         required=True,
+                        wrap="messages",
                         doc="直接描述你想生成的内容，系统会自动拼成请求格式。"
                         "如需图像编辑/多图融合，可在此描述并附上参考图。",
                         placeholder="一只在月光下奔跑的猫，水彩风格",

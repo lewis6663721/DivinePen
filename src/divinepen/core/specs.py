@@ -82,6 +82,54 @@ class Option(BaseModel):
     value: str
 
 
+def normalize_messages(value: Any) -> Any:
+    """提示词 → 供应商要的 messages 数组。
+
+    通义/千问这一系的图像与视频生成，``input.messages`` 要的是
+    ``[{"role": "user", "content": [{"text": "..."}]}]``（见《千问图像生成》：
+    "content **array**（必选）… 仅包含一个 ``{"text": "..."}`` 对象"）。
+    只填一个裸字符串是 400。
+
+    但人写提示词时只会写一句话 —— 所以这里替他把壳套上。已经写成 JSON 的
+    （以 ``[`` 或 ``{`` 开头）原样透传：那样他填的是自己拼好的 messages
+    （比如图生图的 ``[{"role":"user","content":[{"image":...},{"text":...}]}]``），
+    再包一层就错了。
+    """
+    import json
+
+    if isinstance(value, (list, dict)):
+        return value
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return value
+    if text.startswith("[") or text.startswith("{"):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # 想写 JSON 但写坏了（比如提示词本身以 "[" 开头）。当成纯文本，别报错 ——
+            # 用户要的是"生成一张图"，不是"校验我的括号"。
+            pass
+    return [{"role": "user", "content": [{"text": text}]}]
+
+
+def normalize_value(field: FieldSpec, value: Any) -> Any:
+    """按字段声明把值规范化成文档要求的形状。
+
+    按 key 兜一层是**老库兼容**：``wrap`` 是后加的字段，而 DB 里那份 ``params``
+    JSON 是上一次目录导入时写下的。老库里 ``input.messages`` 没有 ``wrap`` ——
+    不能因此就继续发裸字符串出去（那正是这次的 400）。目录重新导入后，
+    ``wrap="messages"`` 会正式接管，这层兜底就只是保险。
+    """
+    wrap = field.wrap
+    if wrap is None and field.key == "input.messages":
+        wrap = "messages"
+    if wrap == "messages":
+        return normalize_messages(value)
+    return value
+
+
 class FieldSpec(BaseModel):
     """一个可编辑参数。``key`` 是点号路径，与接口文档逐字对应。"""
 
@@ -102,6 +150,11 @@ class FieldSpec(BaseModel):
     billed: bool = False
     #: True 表示收进「高级参数」折叠区，默认不打扰用户
     advanced: bool = False
+    #: 送出去之前的**规范化方式**。「文档要求 content 是 [{"text": ...}] 而不是
+    #: 裸字符串」这类约束写在这里 —— 因为它属于"这个字段长什么样"，
+    #: 不属于"谁在调用"。调用方只负责填值，形状由 schema 定。
+    #: 放在这里还有一层用意：见 :meth:`ParamsSchema.build_body` 的注释。
+    wrap: Literal["messages"] | None = None
 
     @property
     def control(self) -> str:
@@ -151,6 +204,11 @@ class ParamsSchema(BaseModel):
                 if spec.required:
                     missing.append(key)
                 continue
+            # 只填了空白的必填文本 = 没填。放到供应商那里只会换来一句
+            # "InvalidParameter"，不如在这里说清楚缺的是哪个字段。
+            if spec.required and isinstance(raw, str) and not raw.strip():
+                missing.append(key)
+                continue
             out[key] = _coerce(spec, raw)
         if missing:
             raise ValueError(f"缺少必填参数：{', '.join(missing)}")
@@ -159,13 +217,22 @@ class ParamsSchema(BaseModel):
     def build_body(self, values: dict[str, Any]) -> dict[str, Any]:
         """扁平值（点号路径）→ 接口文档要求的嵌套请求体。
 
-        **dry-run 与真实调用共用这一份**：页面上看到的 body 就是发出去的 body。
+        **这是"页面上的参数"变成"发出去的 body"的唯一实现。**
+        预览和真实调用都走这里 —— 不是"两处保持一致"，是**从结构上不可能不一致**。
+
+        （曾经不是这样：预览走服务端的 ``assemble_body``，真实调用走这里，
+        而文档要求的 messages 包法只加在了前者身上。结果是页面预览显示一个
+        合法的 body，真实请求发出去的却是一个裸字符串，被供应商以
+        ``InvalidParameter content format is incorrect`` 打回。用户看到的是
+        "照着文档填了、预览也对，怎么一提交就 400"。所以现在只有一条路径。）
+
         顺序按 schema 声明顺序，便于和文档逐行对照。
         """
         body: dict[str, Any] = {}
         for field in self.fields():
             if field.key not in values or values[field.key] is None:
                 continue
+            value = normalize_value(field, values[field.key])
             node = body
             parts = field.key.split(".")
             for part in parts[:-1]:
@@ -174,7 +241,7 @@ class ParamsSchema(BaseModel):
                     nxt = {}
                     node[part] = nxt
                 node = nxt
-            node[parts[-1]] = values[field.key]
+            node[parts[-1]] = value
         return body
 
     # ── 从 Pydantic 派生（唯一真相源）────────────────────────────

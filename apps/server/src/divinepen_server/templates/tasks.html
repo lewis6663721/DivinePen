@@ -37,14 +37,18 @@
       <tbody>
         {% for t in tasks %}
         {% set active = t.status in ('PENDING', 'RUNNING', 'AWAITING_INPUT') %}
+        {% set v = watches.get(t.id) %}
         <tr>
           <td><a href="/tasks/{{ t.id }}"><code class="mono">{{ t.id }}</code></a>
-            {% if active %}
-            <div class="filmstrip" style="max-width:160px">
-              {% for i in range(10) %}
-              <i class="{% if i * 10 < t.progress %}done{% elif i * 10 == (t.progress // 10) * 10 %}now{% endif %}"></i>
-              {% endfor %}
+            {% if active and v %}
+            {# 在跑的行：给的是"活着"的证据（跑了多久 · 回过几次话），
+               不是"完成到百分之多少"—— 供应商不报，编不出来。
+               详情页会自己刷新，这一页是快照。 #}
+            <div class="pbar slim" role="progressbar"
+                 aria-valuetext="正在运行；不提供百分比" title="详情页会自动刷新">
+              <span></span>
             </div>
+            <div class="id">{{ v.headline }} · 已运行 {{ v.elapsed_human }}{% if t.remote_task_id %} · 轮询 {{ t.polls }} 次{% endif %}</div>
             {% endif %}
           </td>
           <td class="tight">
@@ -52,7 +56,10 @@
             <div class="id">{{ t.model or '—' }}</div>
           </td>
           <td class="tight">{{ state(t.status) }}</td>
-          <td class="num">{{ t.progress }}%</td>
+          <td class="num">
+            {% set pct = v.percent if v else none %}
+            {% if pct is not none %}{{ pct }}%{% else %}<span class="muted" title="供应商不报百分比 —— 宁可留空，不编一个">—</span>{% endif %}
+          </td>
           <td>
             {% set arts = (t.result_obj or {}).artifacts %}
             {% set paused = (t.result_obj or {}).paused %}

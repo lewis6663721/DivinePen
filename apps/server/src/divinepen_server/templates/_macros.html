@@ -21,6 +21,67 @@
 {% if verified %}{{ chip('已核对文档', 'ok') }}{% else %}{{ chip('待核对', 'bill') }}{% endif %}
 {%- endmacro %}
 
+{# ── 任务进度卡：详情页与它的自刷新片段**共用这一份** ──────────────
+   一个概念只在一处长出写法。上次「预览」和「真实请求」各写一份 body
+   已经吃过一次亏（见 ARCHITECTURE §18），这里不再犯第二遍。
+
+   三种形态对应"我们知道多少"，不多画一格：
+     none      —— 结束了，不用再画轨
+     filmstrip —— 有真百分比（供应商报的 / pipeline 的步数 / 100%）
+     striped   —— 在跑但拿不到百分比。**条纹在动 = 它在动**，
+                  但绝不拿它冒充"已经完成了百分之多少"。
+   `data-task-watch` 要不要继续刷新由服务端说了算，JS 只管照做。 #}
+{% macro progress_bar(v) -%}
+{% if v.bar == 'filmstrip' %}
+{% set pct = v.percent if v.percent is not none else 0 %}
+<div class="filmstrip" style="max-width:220px">
+  {% for i in range(10) %}
+  <i class="{% if i * 10 < pct %}done{% elif i * 10 == (pct // 10) * 10 and pct < 100 %}now{% endif %}"></i>
+  {% endfor %}
+</div>
+{% elif v.bar == 'striped' %}
+<div class="pbar" role="progressbar" aria-valuetext="正在运行；供应商不提供百分比，故不显示具体数值">
+  <span></span>
+</div>
+{% endif %}
+{%- endmacro %}
+
+{% macro task_progress(v) -%}
+<div class="pcard" id="task-progress"{% if v.watching %} data-task-watch="1"{% endif %}>
+  <div class="pcard-top">
+    <b class="pcard-head">{{ v.headline }}</b>
+    {% if v.percent is not none %}
+    <span class="pcard-pct">{{ v.percent }}%</span>
+    {% else %}
+    <span class="pcard-pct unknown" title="供应商不报百分比 —— 宁可留空，不编一个">—</span>
+    {% endif %}
+    {% if v.watching %}<span class="pcard-live">自动刷新中</span>{% endif %}
+  </div>
+  {{ progress_bar(v) }}
+  {% if v.facts %}
+  <dl class="kv pcard-facts">
+    {% for label, value in v.facts %}
+    <dt>{{ label }}</dt><dd class="mono">{{ value }}</dd>
+    {% endfor %}
+  </dl>
+  {% endif %}
+  {% if v.note %}<p class="hint" style="margin:var(--s2) 0 0">{{ v.note }}</p>{% endif %}
+  {% if v.watching %}
+  {# 自我批评的一句：万一轮询断了，宁可让人知道"这可能不是最新的"，
+     也不要让一块冻结的画面冒充实时。 #}
+  <p class="hint" data-task-watch-note hidden style="margin:var(--s2) 0 0">
+    连不上进度服务了 —— 下面这些数字可能不是最新的。重开本页即可恢复。
+  </p>
+  {% endif %}
+  {% if v.stuck %}
+  <div class="alert bill" style="margin-top:var(--s3)">
+    <b>可能卡住了</b>
+    <div>{{ v.stuck_reason }} <a href="#task-ops">去取消</a>。</div>
+  </div>
+  {% endif %}
+</div>
+{%- endmacro %}
+
 {# ── 参数控件：唯一一处把 FieldSpec 变成 HTML 的地方 ───────────────
    这就是「一个页面兼容任何参数」的落点：模板不认识能力、不认识模型、不认识供应商，
    只认识 FieldType。要接一种新参数，改的是 specs.FieldType 那张类型→控件表，

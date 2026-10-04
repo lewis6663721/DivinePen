@@ -1,0 +1,7 @@
+{# 任务进度片段：给详情页的轮询用的，只有一块。
+
+   它**不是**第二份渲染逻辑 —— 渲染用的是 _macros.html 里那个
+   task_progress()，详情页用的也是同一个。这里只负责"换个壳、少渲染"，
+   这样"页面上看到的"和"刷新后看到的"永远是同一份代码画出来的。 #}
+{%- from "_macros.html" import task_progress -%}
+{{ task_progress(watch) }}

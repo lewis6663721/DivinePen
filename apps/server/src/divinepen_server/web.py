@@ -37,6 +37,7 @@ from divinepen.core.ports import HttpRequest, ResolvePolicy
 from divinepen.core.specs import FieldType, ParamsSchema, TaskStatus
 
 from . import modelform as mf
+from . import progress
 from . import runtime as rt
 from .catalog import CATEGORY_LABELS, broad_label, broad_sort, category_label, category_sort
 from .db import dumps
@@ -1296,6 +1297,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "tasks.html",
             title="任务中心",
             tasks=rows,
+            # 每行的"活着吗"由同一个 describe() 算 —— 列表和详情页不会各说各话。
+            watches={row["id"]: progress.describe(row) for row in rows},
             task_counts=await instance.repo.task_counts(),
             active_task=await instance.repo.tasks(status="RUNNING", limit=1),
             selected_status=status,
@@ -1320,8 +1323,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "task.html",
             title=f"任务 {task_id}",
             task=row,
+            watch=progress.describe(row),
             counts=await nav_counts(instance),
         )
+
+    @app.get("/tasks/{task_id}/progress", response_class=HTMLResponse)
+    async def task_progress_fragment(request: Request, task_id: str):
+        """只回进度卡那一块，给详情页的轮询用。
+
+        为什么是片段而不是 JSON：这样"页面上看到的"和"刷新后看到的"是
+        **同一个宏**画出来的，不会再有第二份渲染逻辑悄悄跑偏。成本也低 ——
+        一次主键查询 + 一个模板，2 秒一次也扛得住。
+
+        `data-task-watch` 由这里给：什么时候不用再刷，是服务端说了算，
+        JS 只管照做 —— 状态机的判断不该散落在浏览器里再写一遍。
+        """
+        instance = get_app()
+        row = await instance.repo.task(task_id)
+        if not row:
+            return HTMLResponse('<div class="pcard"><b>任务不存在</b></div>', status_code=404)
+        return render(request, "task_progress.html", watch=progress.describe(row))
 
     # ── 用户管理 ───────────────────────────────────────────────
 

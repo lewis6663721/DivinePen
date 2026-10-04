@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import chip, state %}
+{% from "_macros.html" import chip, state, task_progress %}
 
 {% block body %}
 {% set paused = (task.result_obj or {}).paused %}
@@ -61,10 +61,10 @@
 <section class="grid side-main">
   <div class="stack-v">
     <div class="panel">
-      <div class="panel-head"><h3>状态</h3><span class="sub">{{ state(task.status) }}</span></div>
+      <div class="panel-head"><h3>进度</h3><span class="sub">{{ state(task.status) }}</span></div>
       <div class="panel-body">
-        <dl class="kv">
-          <dt>进度</dt><dd>{{ task.progress }}% · 已轮询 {{ task.polls }} 次</dd>
+        {{ task_progress(watch) }}
+        <dl class="kv" style="margin-top:var(--s4)">
           <dt>远端 task_id</dt><dd><code class="mono">{{ task.remote_task_id or '—' }}</code></dd>
           <dt>创建</dt><dd>{{ task.created_at }}</dd>
           <dt>更新</dt><dd>{{ task.updated_at }}</dd>
@@ -85,7 +85,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="task-ops">
     <div class="panel-head"><h3>操作</h3></div>
     <div class="panel-body stack-v">
       {% set active = task.status in ('PENDING', 'RUNNING', 'AWAITING_INPUT') %}

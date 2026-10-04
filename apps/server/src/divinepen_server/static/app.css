@@ -404,3 +404,41 @@ pre.code .n{color:var(--ink)}
   .main{padding:var(--s5) var(--s4) 72px}
   .metrics{grid-template-columns:1fr 1fr}
 }
+
+/* ── 任务进度卡（详情页 + 它的自刷新片段）───────────────────────
+   这里只解决一个问题：**在一个没有百分比的地方，怎么让人一眼看出它在动。**
+
+   所以有了 .pbar —— 一条会走的条纹。它的语义被刻意收窄：
+   条纹在动 = 它在动；它**不**表示"完成了百分之多少"。
+   两者混为一谈，就是上一版那个假进度的老路：
+   数字爬到 90% 就停住，人以为卡了，其实远端还在跑。
+
+   真百分比走 .filmstrip（签名 3），那是"我们知道到哪了"的地方。 */
+.pcard{border:1px solid var(--line-soft);border-radius:var(--r-sm);
+  background:var(--surface-2);padding:var(--s3)}
+.pcard-top{display:flex;align-items:baseline;gap:var(--s3);margin-bottom:var(--s3)}
+.pcard-head{font-size:13px;color:var(--ink)}
+.pcard-pct{font:500 12px/1 var(--mono);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.pcard-pct.unknown{color:var(--ink-4)}
+.pcard-live{margin-left:auto;font:400 11px/1 var(--mono);color:var(--signal)}
+.pcard-live::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;
+  margin-right:5px;background:currentColor;animation:pulse 1.4s ease-in-out infinite}
+.pcard-facts{margin:var(--s3) 0 0}
+.pcard-facts dt{font-size:11.5px}
+.pcard-facts dd{font-size:12px}
+
+.pbar{position:relative;overflow:hidden;height:8px;border-radius:2px;
+  background:var(--surface-3);border:1px solid var(--line-soft)}
+.pbar.slim{height:5px;margin:var(--s2) 0}
+/* 条纹自己走：整条斜纹匀速滑过，而不是"填到一半"的错觉。 */
+.pbar>span{position:absolute;inset:-1px 0;background-image:repeating-linear-gradient(
+  115deg, var(--signal-dim) 0 10px, transparent 10px 20px);
+  animation:pbar-slide 1.1s linear infinite}
+@keyframes pbar-slide{from{background-position:0 0}to{background-position:22px 0}}
+@media (prefers-reduced-motion:reduce){
+  /* 动效可以停，但"在跑"这件事不能因此消失 —— 换成一条静态的信号色。 */
+  .pbar>span{animation:none;background:var(--signal-dim);opacity:.55}
+  .pcard-live::before{animation:none}
+}
+
+.muted{color:var(--ink-4)}

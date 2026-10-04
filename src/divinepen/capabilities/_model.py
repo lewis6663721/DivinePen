@@ -311,11 +311,15 @@ class ModelBackedCapability(Capability):
                 )
             parsed = aliyun.parse_poll(model, response.body)
             status: TaskStatus = parsed["status"]
+            # 这里以前写 progress=min(90, polls * 3) —— 每轮询 3 次涨 9%，
+            # 30 个周期爬到 90% 然后停住。那个数字和远端做到哪了毫无关系：
+            # 远端 5% 和 95% 在本地显示一模一样，用户盯着"90%"等 20 分钟只会
+            # 以为卡住了。**百炼的轮询接口根本不返回百分比**，所以现在只写
+            # 真事实：轮询次数 + 状态。页面拿 updated_at 当心跳去算"最后回音"。
             await ctx.tasks.update(
                 local_task_id,
                 status=status.value,
                 polls=polls,
-                progress=min(90, polls * 3),
             )
             if status is TaskStatus.SUCCEEDED:
                 return response.body if isinstance(response.body, dict) else {}, polls

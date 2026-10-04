@@ -250,6 +250,58 @@
     });
   });
 
+  // ── 任务详情：让"在跑"这件事自己走起来 ──────────────────────
+  // 页面是服务端渲染的，一个跑着 20 分钟的视频任务，不刷新就永远停在
+  // 打开那一刻的样子 —— 用户盯着一动不动的"RUNNING"，只能自己去猜。
+  //
+  // 所以这里只做一件事：把 #task-progress 换成服务端刚算出来的那一块。
+  // **停不停由服务端说了算**：片段自己带 data-task-watch，服务端不给，
+  // 我们就停。状态机不在 JS 里，JS 只负责"再问一次"。
+  const watchBox = document.querySelector("[data-task-watch]");
+  if (watchBox) {
+    let failures = 0;
+    const tick = async () => {
+      // 每一轮都**重新从文档里取一次**那块节点。上一轮已经把自己换掉了，
+      // 若还抓着最初那个引用，第二次 replaceWith 换的是一块已经脱离文档的
+      // 节点 —— 不报错，也不生效，于是"刷第一下就永远停住"。
+      const current = document.querySelector("#task-progress");
+      if (!current) return;
+      if (document.hidden) return; // 切到别的标签页就别再问了，回来再说
+      try {
+        const res = await fetch(location.pathname + "/progress", {
+          headers: { "X-Requested-With": "fetch" },
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const html = (await res.text()).trim();
+        failures = 0;
+        const holder = document.createElement("div");
+        holder.innerHTML = html;
+        const fresh = holder.firstElementChild;
+        if (!fresh) return;
+        const stillWatching = fresh.hasAttribute("data-task-watch");
+        current.replaceWith(fresh);
+        if (!stillWatching) {
+          // 跑完了：整页刷一次，好让产物、按钮（取消 → 重跑）、暂停态都跟着更新。
+          // 只刷这一次 —— 上面已经确认服务端不再要求盯着了，不会打转。
+          location.reload();
+        }
+      } catch {
+        // 网络抖一下不该把刷新链断掉：连错 3 次才提示，之后继续试。
+        failures += 1;
+        if (failures === 3) {
+          const note = document.querySelector("[data-task-watch-note]");
+          if (note) note.hidden = false;
+        }
+      }
+    };
+    setInterval(tick, 2000);
+    // 从后台切回来时立刻对一次，不用等下一个 2 秒。
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) tick();
+    });
+  }
+
   // 选了异步任务就把轮询契约展开 —— 那是接下来必须填的东西。只开不关。
   document.querySelectorAll("[data-mode-select]").forEach((select) => {
     const form = select.closest("form");

@@ -307,6 +307,47 @@ class LocalArtifactStore:
             meta=meta or {},
         )
 
+    async def fetch(
+        self,
+        uri: str,
+        *,
+        label: str | None = None,
+        filename: str | None = None,
+        kind: ArtifactKind = ArtifactKind.OTHER,
+        mime: str | None = None,
+        timeout: float = 120.0,
+    ) -> Artifact:
+        """回源下载一个远程产物，落到本地仓。
+
+        供应商的结果 URL **只活 24 小时**（文档原话），过夜就是死链。所以必须在
+        成功那一刻把字节抓回来 —— 页面才有东西可播、可下载，也不怕对方清理。
+        ``label`` 是给人看的名字（「生成视频」），``filename`` 是落盘名（带后缀，
+        否则浏览器按 octet-stream 处理，``<video>`` 直接播不了）。
+        """
+        import httpx
+
+        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+            resp = await client.get(uri)
+            resp.raise_for_status()
+            data = resp.content
+            header = (resp.headers.get("content-type") or "").split(";")[0].strip()
+        local = await self.put(data, kind=kind, name=filename, mime=mime or header or None)
+        return local.model_copy(update={"name": label or local.name, "meta": {"source_url": uri}})
+
+    def url_for(self, artifact: Artifact) -> str:
+        """产物 → 浏览器可直接播放的 URL。
+
+        本地产物走本服务的 ``/media/`` 路由（内容寻址，永不过期）；远程产物原样
+        返回 —— 它 24 小时后会失效，只当兜底，不该是常规路径。
+        """
+        if artifact.is_remote:
+            return artifact.uri
+        try:
+            rel = artifact.path().resolve().relative_to(self.root.resolve())
+        except ValueError:
+            return artifact.uri
+        return f"/media/{rel.as_posix()}"
+
     async def read(self, artifact: Artifact) -> bytes:
         return artifact.path().read_bytes()
 

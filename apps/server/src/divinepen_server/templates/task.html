@@ -3,7 +3,6 @@
 
 {% block body %}
 {% set paused = (task.result_obj or {}).paused %}
-{% set arts = (task.result_obj or {}).artifacts %}
 <div class="page-head">
   <div class="toolbar" style="margin-bottom:var(--s3)">
     <a class="btn ghost" href="/tasks">← 任务中心</a>
@@ -47,12 +46,40 @@
 </section>
 {% endif %}
 
-{% if arts %}
+{% if artifacts %}
 <section>
-  <div class="sec-label" style="margin-bottom:var(--s3)"><b>产物</b> · {{ arts|length }} 个</div>
-  <div class="stack-v">
-    {% for u in arts %}
-    <div class="alert ok"><b>{{ loop.index }}</b><div><code class="mono">{{ u }}</code></div></div>
+  <div class="sec-label" style="margin-bottom:var(--s3)"><b>产物</b> · {{ artifacts|length }} 个</div>
+  <div class="art-grid">
+    {% for a in artifacts %}
+    <figure class="art-card">
+      <figcaption class="art-head">
+        <b>{{ a.name }}</b>
+        <span class="sub">{{ a.kind }}{% if a.size %} · {{ a.size|bytes }}{% endif %}</span>
+      </figcaption>
+      {% if a.kind == 'image' %}
+      <a class="art-stage" href="{{ a.url }}" target="_blank" rel="noopener">
+        <img class="art-img" src="{{ a.url }}" alt="{{ a.name }}" loading="lazy">
+      </a>
+      {% elif a.kind == 'video' %}
+      <video class="art-video" src="{{ a.url }}" controls preload="metadata" playsinline></video>
+      {% elif a.kind == 'audio' %}
+      <audio class="art-audio" src="{{ a.url }}" controls preload="metadata"></audio>
+      {% else %}
+      <div class="art-stage art-misc"><span class="hint">这个类型没有内置预览</span></div>
+      {% endif %}
+      <div class="art-foot">
+        <a class="btn ghost" href="{{ a.url }}" download>下载</a>
+        {% if a.kind == 'image' %}<a class="btn ghost" href="{{ a.url }}" target="_blank" rel="noopener">新窗口打开</a>{% endif %}
+        <code class="mono art-url" title="{{ a.url }}">{{ a.url }}</code>
+      </div>
+      {% if a.source_url and a.source_url != a.url %}
+      <p class="hint">
+        源地址（阿里系 24 小时后失效）：<code class="mono">{{ a.source_url }}</code>
+      </p>
+      {% endif %}
+      {% if a.note %}<p class="hint bad">{{ a.note }}</p>{% endif %}
+      {% if a.stored %}<p class="hint">已落盘到本机，源地址过期也不影响上面的播放与下载。</p>{% endif %}
+    </figure>
     {% endfor %}
   </div>
 </section>

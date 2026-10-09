@@ -20,19 +20,21 @@ from __future__ import annotations
 
 import html
 import json
+import mimetypes
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
 from divinepen.agents import discover_plugins
+from divinepen.core.artifact import Artifact
 from divinepen.core.ports import HttpRequest, ResolvePolicy
 from divinepen.core.specs import FieldType, ParamsSchema, TaskStatus
 
@@ -1392,6 +1394,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "task.html",
             title=f"任务 {task_id}",
             task=row,
+            # 产物的"怎么播"在服务端算好，模板只管画 —— 规则一份，别在 Jinja 里再猜一遍。
+            artifacts=_artifact_view(row.get("result_obj")),
             watch=progress.describe(row),
             counts=await nav_counts(instance),
         )
@@ -1704,6 +1708,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return RedirectResponse(flash_url("/models", note, level), 303)
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    @app.get("/media/{path:path}")
+    async def media_file(path: str):
+        """本地产物出图/出片口。
+
+        产物是按 sha256 前两位分目录、内容寻址落盘的，所以同一个 URL 的字节永远
+        不变 —— 可以放心让浏览器长期缓存。路径先 resolve 再判是否真的在
+        ``media_root`` 里，``../`` 穿越一律 404。
+        """
+        root = settings.media_root.resolve()
+        target = (root / path).resolve()
+        if not target.is_relative_to(root) or not target.is_file():
+            raise HTTPException(status_code=404, detail="产物不存在")
+        return FileResponse(
+            target,
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+
     return app
 
 
@@ -1988,6 +2010,8 @@ async def _run_background(
             task_id, status="FAILED", error=dumps(error), finished_at=_now()
         )
         return
+    # 产物必须在**此刻**抓回本地：供应商的结果 URL 只活 24 小时。
+    artifacts = await _localize_artifacts(instance, task_id, result)
     await instance.repo.update_task(
         task_id,
         status="SUCCEEDED",
@@ -1995,7 +2019,9 @@ async def _run_background(
         result=dumps(
             {
                 "output": _output_dump(result),
-                "artifacts": _artifact_uris(result),
+                # 老字段保持"一串可直接点开的地址"，新页面另看 artifacts_detail。
+                "artifacts": [a["url"] for a in artifacts],
+                "artifacts_detail": artifacts,
                 "elapsed_ms": result.elapsed_ms,
             }
         ),
@@ -2008,19 +2034,132 @@ def _output_dump(result: Any) -> Any:
     return output.model_dump(mode="json") if hasattr(output, "model_dump") else output
 
 
-def _artifact_uris(result: Any) -> list[str]:
-    """产物地址：能力直接挂在 result.artifacts 上；单步能力在 output.uri；
-    流水线在 output.final_artifacts。三处都看，页面才不缺产物。"""
-    uris = [a.uri for a in result.artifacts]
+def _dump_artifacts(dump: Any) -> list[str]:
+    """从**存下来的 result** 里找产物地址。
+
+    三处都看：能力直接挂 ``result.artifacts``；单步能力在 ``output.uri``；
+    流水线在 ``output.final_artifacts``。找产物的规则只此一份 —— 实时结果和三天前
+    的老账目走同一个判断，不会一处补了另一处还漏。
+    """
+    if not isinstance(dump, dict):
+        return []
+    uris = [str(u) for u in (dump.get("artifacts") or [])]
     if uris:
         return uris
-    dump = _output_dump(result)
-    if isinstance(dump, dict):
-        if dump.get("uri"):
-            return [str(dump["uri"])]
-        if dump.get("final_artifacts"):
-            return [str(u) for u in dump["final_artifacts"]]
+    out = dump.get("output")
+    if isinstance(out, dict):
+        if out.get("uri"):
+            return [str(out["uri"])]
+        if out.get("final_artifacts"):
+            return [str(u) for u in out["final_artifacts"]]
     return []
+
+
+def _result_artifacts(result: Any) -> list[Artifact]:
+    """实时结果的产物**对象**（带 kind/name，落盘要用）。"""
+    arts = list(getattr(result, "artifacts", None) or [])
+    if arts:
+        return arts
+    return [Artifact(uri=uri) for uri in _dump_artifacts({"output": _output_dump(result)})]
+
+
+#: kind → 中文名。页面按 kind 挑播放器，用中文名写标题（英文枚举用户读不懂）。
+_KIND_LABEL = {
+    "image": "图片",
+    "video": "视频",
+    "audio": "音频",
+    "subtitle": "字幕",
+    "text": "文本",
+    "json": "数据",
+}
+
+#: 远端产物不落盘时的统一提醒 —— 阿里系结果 URL 的寿命是文档写死的 24 小时。
+EXPIRE_NOTE = "未落盘：源地址 24 小时后失效（过期后详情页只剩记录，看不到内容）"
+
+
+def _looks_generated(name: str) -> bool:
+    """形如 ``image-0`` / ``video_url-1`` 的自动名，不是人给的名字。"""
+    return not any("\u4e00" <= ch <= "\u9fff" for ch in name)
+
+
+def _suffix_of(uri: str, mime: str | None) -> str:
+    """落盘后缀：先信 URL 路径（阿里系结果 URL 带 .png/.mp4/.wav），再信 mime。
+
+    没有后缀的 mp4 会被浏览器当 octet-stream，``<video>`` 直接不出画面 —— 这不是
+    美观问题，是能不能播的问题。
+    """
+    suffix = Path(urlparse(uri).path).suffix
+    if suffix:
+        return suffix
+    return mimetypes.guess_extension(mime or "") or ""
+
+
+async def _localize_artifacts(instance: Any, task_id: str, result: Any) -> list[dict[str, Any]]:
+    """把产物在**成功那一刻**抓回本地，并给出浏览器可用的 URL。
+
+    阿里系的结果 URL 只活 24 小时，所以这不是优化而是必需。落盘失败退回购原 URL
+    并标注未落盘（页面会提示会失效），而不是静默裂图；落盘失败也**不连累任务本身**。
+    """
+    arts = _result_artifacts(result)
+    multi = len(arts) > 1
+    records: list[dict[str, Any]] = []
+    for index, art in enumerate(arts, 1):
+        kind = art.kind.value if hasattr(art.kind, "value") else str(art.kind)
+        base = art.name if (art.name and not _looks_generated(art.name)) else None
+        base = base or _KIND_LABEL.get(kind, kind)
+        record: dict[str, Any] = {
+            "name": f"{base} {index}" if multi else base,
+            "kind": kind,
+            "mime": art.mime,
+            "source_url": art.uri if art.is_remote else None,
+            "stored": False,
+            "url": art.uri,
+            "size": art.size,
+        }
+        if art.is_remote:
+            filename = f"{task_id}-{index}{_suffix_of(art.uri, art.mime)}"
+            try:
+                local = await instance.artifacts.fetch(
+                    art.uri, label=record["name"], filename=filename, kind=art.kind, mime=art.mime
+                )
+                record.update(url=instance.artifacts.url_for(local), stored=True, size=local.size)
+            except Exception as exc:  # 抓不回来也要留住这条记录
+                record["note"] = f"{EXPIRE_NOTE}（{type(exc).__name__}: {exc}）"
+        else:
+            record.update(url=instance.artifacts.url_for(art), stored=True)
+        records.append(record)
+    return records
+
+
+def _artifact_view(result: Any) -> list[dict[str, Any]]:
+    """详情页的产物视图。
+
+    新任务直接读落盘记录；修复前的老任务只有一串 URL，就现场按后缀判 kind，
+    这样历史任务也能出预览，而不是白屏。
+    """
+    obj = result or {}
+    detail = obj.get("artifacts_detail")
+    if detail:
+        return [dict(item) for item in detail]
+    out: list[dict[str, Any]] = []
+    uris = _dump_artifacts(obj)
+    for index, uri in enumerate(uris, 1):
+        art = Artifact(uri=str(uri))
+        kind = art.kind.value if hasattr(art.kind, "value") else str(art.kind)
+        base = _KIND_LABEL.get(kind, kind)
+        out.append(
+            {
+                "name": f"{base} {index}" if len(uris) > 1 else base,
+                "kind": kind,
+                "mime": art.mime,
+                "source_url": str(uri) if art.is_remote else None,
+                "stored": not art.is_remote,
+                "url": str(uri),
+                "size": art.size,
+                "note": EXPIRE_NOTE if art.is_remote else None,
+            }
+        )
+    return out
 
 
 def _spawn(coro: Any, *, task_id: str | None = None) -> None:

@@ -68,6 +68,10 @@ class Artifact(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     uri: str = Field(description="file:// / http(s):// / oss:// / data: 或本地绝对路径")
+    name: str | None = Field(
+        default=None,
+        description="人类可读名，如「生成图片」/「生成视频」；页面预览拿它当标题",
+    )
     kind: ArtifactKind = ArtifactKind.OTHER
     mime: str | None = None
     size: int | None = None
